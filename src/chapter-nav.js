@@ -30,6 +30,12 @@
     }
   ]);
 
+  const CHAPTER_ACTIONS = Object.freeze(ACTIONS.filter((action) => action.key !== "contents"));
+  const EXCLUDED_CATALOG_TEXT = /^(首页|主页|目录|返回目录|章节目录|上一章|下一章|上章|下章|登录|注册|搜索|书架|返回|prev|previous|next|index|contents?|catalog)$/i;
+  const CHAPTER_TEXT_PATTERN = /(^第\s*[0-9零一二三四五六七八九十百千万两]+\s*[章节回卷集部篇])|(\bchapter\s*\d+\b)|(^\d+[\s.、_-]*\S+)/i;
+  const CHAPTER_HREF_PATTERN = /(chapter|read|\/\d+\.html?$|[_-]\d+\.html?$)/i;
+  let syncVersion = 0;
+
   function normalizeText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
   }
@@ -107,10 +113,88 @@
     }, {});
   }
 
+  function resolveUrl(href, baseUrl) {
+    try {
+      return new URL(href, baseUrl).href;
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function getAnchorMatchesFromHtml(html) {
+    const matches = [];
+    const anchorPattern = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+    let match = anchorPattern.exec(String(html || ""));
+
+    while (match) {
+      const attributes = match[1] || "";
+      const hrefMatch = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attributes);
+      const rawText = match[2] || "";
+      const text = normalizeText(rawText.replace(/<[^>]*>/g, " "));
+
+      if (hrefMatch) {
+        matches.push({
+          href: hrefMatch[1] || hrefMatch[2] || hrefMatch[3] || "",
+          text
+        });
+      }
+
+      match = anchorPattern.exec(String(html || ""));
+    }
+
+    return matches;
+  }
+
+  function getAnchorMatches(html) {
+    if (typeof DOMParser !== "function") {
+      return getAnchorMatchesFromHtml(html);
+    }
+
+    const parsed = new DOMParser().parseFromString(String(html || ""), "text/html");
+    return Array.from(parsed.querySelectorAll("a[href]")).map((anchor) => ({
+      href: anchor.getAttribute("href") || "",
+      text: normalizeText(anchor.textContent)
+    }));
+  }
+
+  function isLikelyChapter(anchor, absoluteHref) {
+    if (!anchor.text || EXCLUDED_CATALOG_TEXT.test(anchor.text)) {
+      return false;
+    }
+
+    return CHAPTER_TEXT_PATTERN.test(anchor.text) || CHAPTER_HREF_PATTERN.test(absoluteHref);
+  }
+
+  function parseCatalogChapters(html, baseUrl) {
+    const seen = new Set();
+    const chapters = [];
+
+    getAnchorMatches(html).forEach((anchor) => {
+      const href = resolveUrl(anchor.href, baseUrl);
+
+      if (!href || seen.has(href) || !isLikelyChapter(anchor, href)) {
+        return;
+      }
+
+      seen.add(href);
+      chapters.push({
+        title: anchor.text,
+        href
+      });
+    });
+
+    return chapters;
+  }
+
   function removeChapterNav(doc) {
     const existing = doc && doc.querySelector ? doc.querySelector(".brp-chapter-nav") : null;
     if (existing && existing.remove) {
       existing.remove();
+    }
+
+    const catalog = doc && doc.querySelector ? doc.querySelector(".brp-catalog-panel") : null;
+    if (catalog && catalog.remove) {
+      catalog.remove();
     }
   }
 
@@ -141,7 +225,7 @@
     nav.className = "brp-chapter-nav";
     nav.setAttribute("aria-label", "章节导航");
 
-    ACTIONS.forEach((action) => {
+    CHAPTER_ACTIONS.forEach((action) => {
       nav.appendChild(createNavItem(doc, action, targets && targets[action.key]));
     });
 
@@ -149,19 +233,120 @@
     return nav;
   }
 
-  function syncChapterNav(doc, enabled) {
+  function createTextBlock(doc, className, text) {
+    const element = doc.createElement("div");
+    element.className = className;
+    element.textContent = text;
+    return element;
+  }
+
+  function renderCatalogPanel(doc, state) {
+    if (!doc || !doc.body) {
+      return null;
+    }
+
+    const existing = doc.querySelector ? doc.querySelector(".brp-catalog-panel") : null;
+    if (existing && existing.remove) {
+      existing.remove();
+    }
+
+    const panel = doc.createElement("aside");
+    const chapters = state && Array.isArray(state.chapters) ? state.chapters : [];
+    const catalogHref = state && state.catalogHref;
+    const status = state && state.status;
+    panel.className = "brp-catalog-panel";
+    panel.setAttribute("aria-label", "章节目录");
+
+    const title = doc.createElement("div");
+    title.className = "brp-catalog-panel__title";
+    title.textContent = status === "ready" ? `目录 · ${chapters.length}章` : "目录";
+    panel.appendChild(title);
+
+    if (status === "ready" && chapters.length > 0) {
+      const list = doc.createElement("div");
+      list.className = "brp-catalog-panel__list";
+      chapters.forEach((chapter) => {
+        const item = doc.createElement("a");
+        item.className = "brp-catalog-panel__item";
+        item.href = chapter.href;
+        item.textContent = chapter.title;
+        list.appendChild(item);
+      });
+      panel.appendChild(list);
+    } else {
+      const message = status === "loading" ? "目录加载中..." : status === "error" ? "目录加载失败" : "未识别到章节";
+      panel.appendChild(createTextBlock(doc, "brp-catalog-panel__message", message));
+
+      if (catalogHref) {
+        const fallback = doc.createElement("a");
+        fallback.className = "brp-catalog-panel__fallback";
+        fallback.href = catalogHref;
+        fallback.textContent = "打开目录";
+        panel.appendChild(fallback);
+      }
+    }
+
+    doc.body.appendChild(panel);
+    return panel;
+  }
+
+  async function defaultFetchCatalog(href) {
+    const response = await fetch(href, { credentials: "include" });
+    if (!response.ok) {
+      throw new Error(`Catalog request failed: ${response.status}`);
+    }
+    return response.text();
+  }
+
+  async function syncChapterNav(doc, enabled, options) {
+    const version = ++syncVersion;
+
     if (!enabled) {
       removeChapterNav(doc);
       return null;
     }
 
     const links = doc && doc.querySelectorAll ? doc.querySelectorAll("a[href]") : [];
-    return renderChapterNav(doc, detectChapterTargets(links));
+    const targets = detectChapterTargets(links);
+    renderChapterNav(doc, targets);
+
+    if (!targets.contents || !targets.contents.href) {
+      renderCatalogPanel(doc, { status: "empty", catalogHref: null, chapters: [] });
+      return null;
+    }
+
+    renderCatalogPanel(doc, { status: "loading", catalogHref: targets.contents.href, chapters: [] });
+
+    try {
+      const fetchCatalog = options && options.fetchCatalog ? options.fetchCatalog : defaultFetchCatalog;
+      const html = await fetchCatalog(targets.contents.href);
+      const chapters = parseCatalogChapters(html, targets.contents.href);
+
+      if (version !== syncVersion) {
+        return null;
+      }
+
+      renderCatalogPanel(doc, {
+        status: chapters.length > 0 ? "ready" : "empty",
+        catalogHref: targets.contents.href,
+        chapters
+      });
+    } catch (_error) {
+      if (version !== syncVersion) {
+        return null;
+      }
+
+      renderCatalogPanel(doc, { status: "error", catalogHref: targets.contents.href, chapters: [] });
+    }
+
+    return null;
   }
 
   return {
     ACTIONS,
     detectChapterTargets,
+    parseCatalogChapters,
+    renderCatalogPanel,
     renderChapterNav,
     removeChapterNav,
     syncChapterNav

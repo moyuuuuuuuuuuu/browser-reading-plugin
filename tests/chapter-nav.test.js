@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 
 const {
   detectChapterTargets,
+  parseCatalogChapters,
+  renderCatalogPanel,
   renderChapterNav,
   removeChapterNav,
   syncChapterNav
@@ -101,11 +103,15 @@ function createDocumentFixture() {
     body,
     created: elements,
     querySelector(selector) {
-      if (selector !== ".brp-chapter-nav") {
-        return null;
+      if (selector === ".brp-chapter-nav") {
+        return body.appended.find((element) => element.className === "brp-chapter-nav") || null;
       }
 
-      return body.appended.find((element) => element.className === "brp-chapter-nav") || null;
+      if (selector === ".brp-catalog-panel") {
+        return body.appended.find((element) => element.className === "brp-catalog-panel") || null;
+      }
+
+      return null;
     },
     createElement(tagName) {
       return {
@@ -135,43 +141,84 @@ function createDocumentFixture() {
   };
 }
 
-test("renders all three nav items and disables missing targets", () => {
+test("parses and deduplicates chapter links from catalog html", () => {
+  const chapters = parseCatalogChapters(`
+    <nav><a href="/">首页</a><a href="/login">登录</a></nav>
+    <main>
+      <a href="chapter-1.html">第1章 初见</a>
+      <a href="chapter-2.html">第2章 风起</a>
+      <a href="chapter-1.html">第1章 初见</a>
+      <a href="next.html">下一章</a>
+      <a href="catalog.html">目录</a>
+    </main>
+  `, "https://example.test/book/catalog.html");
+
+  assert.deepEqual(chapters, [
+    { title: "第1章 初见", href: "https://example.test/book/chapter-1.html" },
+    { title: "第2章 风起", href: "https://example.test/book/chapter-2.html" }
+  ]);
+});
+
+test("renders previous and next controls only", () => {
   const doc = createDocumentFixture();
 
   renderChapterNav(doc, {
     previous: { href: "https://example.test/1.html" },
-    contents: null,
+    contents: { href: "https://example.test/index.html" },
     next: { href: "https://example.test/3.html" }
   });
 
   const nav = doc.querySelector(".brp-chapter-nav");
   assert.ok(nav);
-  assert.equal(nav.children.length, 3);
+  assert.equal(nav.children.length, 2);
   assert.equal(nav.children[0].href, "https://example.test/1.html");
-  assert.equal(nav.children[1].attributes["aria-disabled"], "true");
-  assert.equal(nav.children[2].href, "https://example.test/3.html");
+  assert.equal(nav.children[1].href, "https://example.test/3.html");
+});
+
+test("renders catalog panel with chapter count and links", () => {
+  const doc = createDocumentFixture();
+
+  renderCatalogPanel(doc, {
+    status: "ready",
+    catalogHref: "https://example.test/index.html",
+    chapters: [
+      { title: "第1章 初见", href: "https://example.test/1.html" },
+      { title: "第2章 风起", href: "https://example.test/2.html" }
+    ]
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.ok(panel);
+  assert.equal(panel.children[0].textContent, "目录 · 2章");
+  assert.equal(panel.children[1].children.length, 2);
+  assert.equal(panel.children[1].children[0].href, "https://example.test/1.html");
 });
 
 test("removeChapterNav removes the existing panel", () => {
   const doc = createDocumentFixture();
 
   renderChapterNav(doc, { previous: null, contents: null, next: null });
+  renderCatalogPanel(doc, { status: "empty", catalogHref: null, chapters: [] });
   assert.ok(doc.querySelector(".brp-chapter-nav"));
+  assert.ok(doc.querySelector(".brp-catalog-panel"));
 
   removeChapterNav(doc);
   assert.equal(doc.querySelector(".brp-chapter-nav"), null);
+  assert.equal(doc.querySelector(".brp-catalog-panel"), null);
 });
 
-test("syncChapterNav removes the panel when reading enhancement is disabled", () => {
+test("syncChapterNav removes panels when reading enhancement is disabled", async () => {
   const doc = createDocumentFixture();
 
   renderChapterNav(doc, { previous: null, contents: null, next: null });
-  syncChapterNav(doc, false);
+  renderCatalogPanel(doc, { status: "empty", catalogHref: null, chapters: [] });
+  await syncChapterNav(doc, false);
 
   assert.equal(doc.querySelector(".brp-chapter-nav"), null);
+  assert.equal(doc.querySelector(".brp-catalog-panel"), null);
 });
 
-test("syncChapterNav renders detected targets when reading enhancement is enabled", () => {
+test("syncChapterNav renders right controls and fetched catalog when enabled", async () => {
   const doc = createDocumentFixture();
   doc.querySelectorAll = (selector) => {
     assert.equal(selector, "a[href]");
@@ -182,11 +229,65 @@ test("syncChapterNav renders detected targets when reading enhancement is enable
     ];
   };
 
-  syncChapterNav(doc, true);
+  await syncChapterNav(doc, true, {
+    fetchCatalog: async (href) => {
+      assert.equal(href, "https://example.test/index.html");
+      return `
+        <a href="1.html">第1章 初见</a>
+        <a href="2.html">第2章 风起</a>
+      `;
+    }
+  });
 
   const nav = doc.querySelector(".brp-chapter-nav");
+  const panel = doc.querySelector(".brp-catalog-panel");
   assert.ok(nav);
+  assert.ok(panel);
+  assert.equal(nav.children.length, 2);
   assert.equal(nav.children[0].href, "https://example.test/1.html");
-  assert.equal(nav.children[1].href, "https://example.test/index.html");
-  assert.equal(nav.children[2].href, "https://example.test/3.html");
+  assert.equal(nav.children[1].href, "https://example.test/3.html");
+  assert.equal(panel.children[0].textContent, "目录 · 2章");
+});
+
+test("syncChapterNav renders catalog fallback when fetch fails", async () => {
+  const doc = createDocumentFixture();
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: "https://example.test/index.html" })
+  ];
+
+  await syncChapterNav(doc, true, {
+    fetchCatalog: async () => {
+      throw new Error("network blocked");
+    }
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.ok(panel);
+  assert.equal(panel.children[0].textContent, "目录");
+  assert.equal(panel.children[1].textContent, "目录加载失败");
+});
+
+test("syncChapterNav ignores stale catalog responses after disabling", async () => {
+  const doc = createDocumentFixture();
+  let resolveCatalog;
+  const pendingCatalog = new Promise((resolve) => {
+    resolveCatalog = resolve;
+  });
+
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: "https://example.test/index.html" })
+  ];
+
+  const firstSync = syncChapterNav(doc, true, {
+    fetchCatalog: async () => pendingCatalog
+  });
+  assert.ok(doc.querySelector(".brp-catalog-panel"));
+
+  await syncChapterNav(doc, false);
+  assert.equal(doc.querySelector(".brp-catalog-panel"), null);
+
+  resolveCatalog('<a href="1.html">第1章 初见</a>');
+  await firstSync;
+
+  assert.equal(doc.querySelector(".brp-catalog-panel"), null);
 });

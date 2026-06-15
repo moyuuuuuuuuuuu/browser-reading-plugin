@@ -139,7 +139,9 @@
     root.dataset.brpTheme = currentSettings.theme;
 
     if (window.BRPChapterNav && typeof window.BRPChapterNav.syncChapterNav === "function") {
-      window.BRPChapterNav.syncChapterNav(document, currentSettings.enabled);
+      window.BRPChapterNav.syncChapterNav(document, currentSettings.enabled).catch((error) => {
+        console.warn("[Browser Reading Plugin] Failed to sync chapter navigation:", error);
+      });
     }
   }
 
