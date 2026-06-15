@@ -114,7 +114,7 @@ html.brp-reading-cleanup body :where(
   [id*="share" i],
   [class*="toolbar" i],
   [id*="toolbar" i]
-) {
+):not(.brp-chapter-nav):not(.brp-chapter-nav *) {
   display: none !important;
 }
 
@@ -125,4 +125,61 @@ html.brp-reading-enabled body::before {
   z-index: -1;
   background: var(--brp-bg);
   pointer-events: none;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav {
+  position: fixed !important;
+  top: 50% !important;
+  left: max(12px, calc((100vw - var(--brp-content-width)) / 2 - 96px)) !important;
+  z-index: 2147483646 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  width: 76px !important;
+  transform: translateY(-50%) !important;
+  pointer-events: auto !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav__item {
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 38px !important;
+  padding: 8px 10px !important;
+  border: 1px solid var(--brp-border) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--brp-surface) 92%, var(--brp-bg)) !important;
+  color: var(--brp-link) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+  text-decoration: none !important;
+  white-space: normal !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav__item:hover {
+  background: var(--brp-surface) !important;
+  text-decoration: none !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav__item--disabled {
+  color: var(--brp-muted) !important;
+  cursor: not-allowed !important;
+  opacity: 0.56 !important;
+}
+
+@media (max-width: 760px) {
+  html.brp-reading-enabled body .brp-chapter-nav {
+    left: 8px !important;
+    width: 54px !important;
+  }
+
+  html.brp-reading-enabled body .brp-chapter-nav__item {
+    min-height: 34px !important;
+    padding: 6px !important;
+    font-size: 12px !important;
+  }
 }

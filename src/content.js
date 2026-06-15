@@ -137,6 +137,10 @@
     root.classList.toggle("brp-reading-enabled", currentSettings.enabled);
     root.classList.toggle("brp-reading-cleanup", currentSettings.enabled && currentSettings.cleanup);
     root.dataset.brpTheme = currentSettings.theme;
+
+    if (window.BRPChapterNav && typeof window.BRPChapterNav.syncChapterNav === "function") {
+      window.BRPChapterNav.syncChapterNav(document, currentSettings.enabled);
+    }
   }
 
   function getFromStorage(key) {
