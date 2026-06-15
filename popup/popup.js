@@ -40,10 +40,12 @@ let activeTab = null;
 let currentSettings = { ...DEFAULT_SETTINGS };
 let updateTimer = 0;
 
+// 将 Chrome 回调里的 lastError 转成普通 Error，便于 Promise 链处理。
 function chromeLastError() {
   return chrome.runtime.lastError ? new Error(chrome.runtime.lastError.message) : null;
 }
 
+// 获取当前窗口中正在操作的标签页。
 function queryActiveTab() {
   return new Promise((resolve, reject) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -58,6 +60,7 @@ function queryActiveTab() {
   });
 }
 
+// 向指定标签页的内容脚本发送消息。
 function sendMessage(tabId, message) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, (response) => {
@@ -72,6 +75,7 @@ function sendMessage(tabId, message) {
   });
 }
 
+// 在页面中补注入内容脚本，用于处理扩展刚安装或页面未加载脚本的情况。
 function executeScript(tabId) {
   return new Promise((resolve, reject) => {
     chrome.scripting.executeScript(
@@ -92,6 +96,7 @@ function executeScript(tabId) {
   });
 }
 
+// 在页面中补注入阅读样式表。
 function insertCss(tabId) {
   return new Promise((resolve, reject) => {
     chrome.scripting.insertCSS(
@@ -112,6 +117,7 @@ function insertCss(tabId) {
   });
 }
 
+// 从本地扩展存储读取指定配置。
 function getFromStorage(key) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get(key, (result) => {
@@ -126,6 +132,7 @@ function getFromStorage(key) {
   });
 }
 
+// 从标签页 URL 中提取 hostname，URL 非法时返回空字符串。
 function hostnameFromTab(tab) {
   try {
     return new URL(tab.url).hostname;
@@ -134,15 +141,18 @@ function hostnameFromTab(tab) {
   }
 }
 
+// 为当前标签页所在站点生成独立的设置存储 key。
 function storageKeyForTab(tab) {
   return `${STORAGE_PREFIX}${hostnameFromTab(tab) || "local"}`;
 }
 
+// 更新弹窗底部状态文案，并按需显示错误样式。
 function setStatus(message, isError = false) {
   statusLabel.textContent = message;
   statusLabel.classList.toggle("status--error", isError);
 }
 
+// 将滑块数值格式化成用户可读的单位文本。
 function formatValue(name, value) {
   if (name === "fontSize" || name === "contentWidth" || name === "pagePadding") {
     return `${value}px`;
@@ -155,10 +165,12 @@ function formatValue(name, value) {
   return Number(value).toFixed(2);
 }
 
+// 合并默认设置，保证弹窗渲染时字段完整。
 function normalizeSettings(settings) {
   return { ...DEFAULT_SETTINGS, ...(settings || {}) };
 }
 
+// 根据 currentSettings 刷新弹窗控件状态和值标签。
 function render() {
   controls.enabled.checked = Boolean(currentSettings.enabled);
   controls.cleanup.checked = Boolean(currentSettings.cleanup);
@@ -175,6 +187,7 @@ function render() {
   });
 }
 
+// 从弹窗控件读取当前用户输入的设置。
 function readSettingsFromControls() {
   return {
     enabled: controls.enabled.checked,
@@ -189,6 +202,7 @@ function readSettingsFromControls() {
   };
 }
 
+// 确保当前页面已经有内容脚本可响应；无响应时尝试补注入。
 async function ensureContentScript(tab) {
   try {
     return await sendMessage(tab.id, { type: "BRP_GET_SETTINGS" });
@@ -199,6 +213,7 @@ async function ensureContentScript(tab) {
   }
 }
 
+// 将弹窗设置推送到当前页面，并用页面返回的规范化设置刷新 UI。
 async function pushSettings(settings) {
   if (!activeTab || typeof activeTab.id !== "number") {
     return;
@@ -217,6 +232,7 @@ async function pushSettings(settings) {
   render();
 }
 
+// 对频繁输入做短延迟合并，避免滑块拖动时过度发送消息。
 function scheduleUpdate() {
   currentSettings = readSettingsFromControls();
   render();
@@ -228,6 +244,7 @@ function scheduleUpdate() {
   }, 80);
 }
 
+// 绑定所有控件事件和重置按钮事件。
 function bindControls() {
   Object.values(controls).forEach((control) => {
     control.addEventListener("input", scheduleUpdate);
@@ -243,6 +260,7 @@ function bindControls() {
   });
 }
 
+// 初始化弹窗：绑定事件、连接当前页、读取并渲染设置。
 async function init() {
   bindControls();
 
