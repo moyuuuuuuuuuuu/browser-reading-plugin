@@ -37,6 +37,7 @@
   const CATALOG_NEXT_PAGE_PATTERN = /^(下一页|下页|后页|后一页|next\s*page|more|>|›|»|>>)$/i;
   const CATALOG_PAGE_NUMBER_PATTERN = /^(第\s*)?\d+\s*页?$/;
   const CATALOG_PAGE_HREF_PATTERN = /(partlist|catalog|chapterlist|list|index)/i;
+  const FULL_CATALOG_TEXT_PATTERN = /(全部章节|所有章节|完整目录|全部目录|完整章节|全部章节目录|查看全部|查看完整|更多章节|章节全集)/;
   const MAX_CATALOG_PAGES = 8;
   const catalogCache = new Map();
   let syncVersion = 0;
@@ -322,6 +323,25 @@
     return parseCatalogPageLinks(html, baseUrl, seenPages)[0] || null;
   }
 
+  // 在“最新章节”目录页中寻找真正的完整目录入口。
+  function parseFullCatalogHref(html, baseUrl, seenPages) {
+    const anchors = getAnchorMatches(html);
+
+    for (const anchor of anchors) {
+      const href = resolveUrl(anchor.href, baseUrl);
+
+      if (!href || (seenPages && seenPages.has(href)) || !isSameOriginUrl(href, baseUrl)) {
+        continue;
+      }
+
+      if (FULL_CATALOG_TEXT_PATTERN.test(normalizeText(anchor.text))) {
+        return href;
+      }
+    }
+
+    return null;
+  }
+
   // 判断链接或 option 是否是目录分页入口，而不是章节或普通导航。
   function isCatalogPageLink(anchor, href, baseUrl) {
     const text = normalizeText(anchor.text);
@@ -378,6 +398,13 @@
       pagesSeen.add(nextHref);
 
       const html = await fetchCatalog(nextHref);
+      const fullCatalogHref = parseFullCatalogHref(html, nextHref, pagesSeen);
+
+      if (fullCatalogHref) {
+        queue.unshift(fullCatalogHref);
+        continue;
+      }
+
       parseCatalogChapters(html, nextHref).forEach((chapter) => {
         if (chaptersSeen.has(chapter.href)) {
           return;
@@ -476,6 +503,19 @@
     title.textContent = status === "ready" ? `目录 · ${chapters.length}章` : "目录";
     panel.appendChild(title);
 
+    if (catalogHref) {
+      const refresh = doc.createElement("button");
+      refresh.className = "brp-catalog-panel__refresh";
+      refresh.textContent = "重新获取";
+      refresh.setAttribute("type", "button");
+
+      if (state && typeof state.onRefresh === "function" && refresh.addEventListener) {
+        refresh.addEventListener("click", state.onRefresh);
+      }
+
+      panel.appendChild(refresh);
+    }
+
     if (status === "ready" && chapters.length > 0) {
       const list = doc.createElement("div");
       list.className = "brp-catalog-panel__list";
@@ -526,7 +566,16 @@
     const targets = detectChapterTargets(links);
     const pageHref = getDocumentHref(doc);
     const pageChapters = parseCatalogChaptersFromLinks(links, pageHref);
+    const forceRefresh = Boolean(options && options.forceRefresh);
     renderChapterNav(doc, targets);
+
+    const refreshCatalog = () => {
+      if (targets.contents && targets.contents.href) {
+        catalogCache.delete(targets.contents.href);
+      }
+
+      syncChapterNav(doc, true, { forceRefresh: true }).catch((_error) => {});
+    };
 
     if (!targets.contents || !targets.contents.href) {
       renderCatalogPanel(doc, {
@@ -540,18 +589,23 @@
     renderCatalogPanel(doc, {
       status: pageChapters.length > 0 ? "ready" : "loading",
       catalogHref: targets.contents.href,
-      chapters: pageChapters
+      chapters: pageChapters,
+      onRefresh: refreshCatalog
     });
 
     try {
       const fetchCatalog = options && options.fetchCatalog ? options.fetchCatalog : defaultFetchCatalog;
       const maxPages = options && options.maxCatalogPages ? options.maxCatalogPages : MAX_CATALOG_PAGES;
-      const shouldUseCache = !(options && options.fetchCatalog);
+      const shouldUseCache = !(options && options.fetchCatalog) && !forceRefresh;
       let chapters = shouldUseCache ? catalogCache.get(targets.contents.href) : null;
+
+      if (forceRefresh) {
+        catalogCache.delete(targets.contents.href);
+      }
 
       if (!chapters) {
         chapters = await loadCatalogChapters(targets.contents.href, fetchCatalog, maxPages);
-        if (shouldUseCache) {
+        if (!(options && options.fetchCatalog)) {
           catalogCache.set(targets.contents.href, chapters);
         }
       }
@@ -563,7 +617,8 @@
       renderCatalogPanel(doc, {
         status: chapters.length > 0 ? "ready" : "empty",
         catalogHref: targets.contents.href,
-        chapters: chapters.length > 0 ? chapters : pageChapters
+        chapters: chapters.length > 0 ? chapters : pageChapters,
+        onRefresh: refreshCatalog
       });
     } catch (_error) {
       if (version !== syncVersion) {
@@ -573,7 +628,8 @@
       renderCatalogPanel(doc, {
         status: pageChapters.length > 0 ? "ready" : "error",
         catalogHref: targets.contents.href,
-        chapters: pageChapters
+        chapters: pageChapters,
+        onRefresh: refreshCatalog
       });
     }
 
@@ -585,6 +641,7 @@
     detectChapterTargets,
     parseCatalogChapters,
     parseCatalogChaptersFromLinks,
+    parseFullCatalogHref,
     parseCatalogPageLinks,
     parseCatalogNextPage,
     renderCatalogPanel,

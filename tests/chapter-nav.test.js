@@ -6,6 +6,7 @@ const {
   parseCatalogChapters,
   parseCatalogChaptersFromLinks,
   parseCatalogPageLinks,
+  parseFullCatalogHref,
   parseCatalogNextPage,
   renderCatalogPanel,
   renderChapterNav,
@@ -125,14 +126,23 @@ function createDocumentFixture() {
         title: "",
         attributes: {},
         children: [],
+        listeners: {},
         parentNode: null,
         setAttribute(name, value) {
           this.attributes[name] = String(value);
+        },
+        addEventListener(name, handler) {
+          this.listeners[name] = handler;
         },
         appendChild(child) {
           this.children.push(child);
           child.parentNode = this;
           return child;
+        },
+        click() {
+          if (this.listeners.click) {
+            this.listeners.click();
+          }
         },
         remove() {
           if (this.parentNode && this.parentNode.removeChild) {
@@ -175,6 +185,15 @@ test("extracts current page chapter links as catalog fallback", () => {
     { title: "第1207章 顾葬天的备用方案？", href: "https://m.qbxs8.net/partlist/10490/32447973.html" },
     { title: "第1208章 绝路刚子", href: "https://m.qbxs8.net/partlist/10490/32448456.html" }
   ]);
+});
+
+test("detects full catalog entry before parsing latest-chapter catalog page", () => {
+  const href = parseFullCatalogHref(`
+    <a href="/partlist/10490/new.html">最新章节</a>
+    <a href="/partlist/10490/all.html">全部章节</a>
+  `, "https://m.qbxs8.net/partlist/10490/");
+
+  assert.equal(href, "https://m.qbxs8.net/partlist/10490/all.html");
 });
 
 test("detects catalog pagination next page without treating next chapter as pagination", () => {
@@ -248,8 +267,26 @@ test("renders catalog panel with chapter count and links", () => {
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.ok(panel);
   assert.equal(panel.children[0].textContent, "目录 · 2章");
-  assert.equal(panel.children[1].children.length, 2);
-  assert.equal(panel.children[1].children[0].href, "https://example.test/1.html");
+  assert.equal(panel.children[1].textContent, "重新获取");
+  assert.equal(panel.children[2].children.length, 2);
+  assert.equal(panel.children[2].children[0].href, "https://example.test/1.html");
+});
+
+test("catalog refresh button calls its handler", () => {
+  const doc = createDocumentFixture();
+  let clicked = false;
+
+  renderCatalogPanel(doc, {
+    status: "ready",
+    catalogHref: "https://example.test/index.html",
+    chapters: [{ title: "第1章 初见", href: "https://example.test/1.html" }],
+    onRefresh() {
+      clicked = true;
+    }
+  });
+
+  doc.querySelector(".brp-catalog-panel").children[1].click();
+  assert.equal(clicked, true);
 });
 
 test("removeChapterNav removes the existing panel", () => {
@@ -339,7 +376,46 @@ test("syncChapterNav follows paginated catalog pages and deduplicates chapters",
     "https://example.test/book/catalog-2.html"
   ]);
   assert.equal(panel.children[0].textContent, "目录 · 3章");
-  assert.equal(panel.children[1].children[2].href, "https://example.test/book/3.html");
+  assert.equal(panel.children[2].children[2].href, "https://example.test/book/3.html");
+});
+
+test("syncChapterNav follows full catalog entry before paginated catalog pages", async () => {
+  const doc = createDocumentFixture();
+  const fetched = [];
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: "https://m.qbxs8.net/partlist/10490/" })
+  ];
+
+  await syncChapterNav(doc, true, {
+    fetchCatalog: async (href) => {
+      fetched.push(href);
+
+      if (href.endsWith("/10490/")) {
+        return `
+          <a href="/partlist/10490/32448456.html">第1208章 绝路刚子</a>
+          <a href="/partlist/10490/all.html">全部章节</a>
+        `;
+      }
+
+      if (href.endsWith("all.html")) {
+        return `
+          <a href="/partlist/10490/1.html">第1章 初见</a>
+          <a href="/partlist/10490/2.html">第2章 风起</a>
+          <a href="/partlist/10490/all-2.html">下一页</a>
+        `;
+      }
+
+      return '<a href="/partlist/10490/3.html">第3章 入城</a>';
+    }
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.deepEqual(fetched, [
+    "https://m.qbxs8.net/partlist/10490/",
+    "https://m.qbxs8.net/partlist/10490/all.html",
+    "https://m.qbxs8.net/partlist/10490/all-2.html"
+  ]);
+  assert.equal(panel.children[0].textContent, "目录 · 3章");
 });
 
 test("syncChapterNav renders catalog fallback when fetch fails", async () => {
@@ -357,7 +433,8 @@ test("syncChapterNav renders catalog fallback when fetch fails", async () => {
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.ok(panel);
   assert.equal(panel.children[0].textContent, "目录");
-  assert.equal(panel.children[1].textContent, "目录加载失败");
+  assert.equal(panel.children[1].textContent, "重新获取");
+  assert.equal(panel.children[2].textContent, "目录加载失败");
 });
 
 test("syncChapterNav uses current page chapter links when catalog fetch fails", async () => {
