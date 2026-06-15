@@ -34,6 +34,9 @@
   const EXCLUDED_CATALOG_TEXT = /^(首页|主页|目录|返回目录|章节目录|上一章|下一章|上章|下章|登录|注册|搜索|书架|返回|prev|previous|next|index|contents?|catalog)$/i;
   const CHAPTER_TEXT_PATTERN = /(^第\s*[0-9零一二三四五六七八九十百千万两]+\s*[章节回卷集部篇])|(\bchapter\s*\d+\b)|(^\d+[\s.、_-]*\S+)/i;
   const CHAPTER_HREF_PATTERN = /(chapter|read|\/\d+\.html?$|[_-]\d+\.html?$)/i;
+  const CATALOG_NEXT_PAGE_PATTERN = /^(下一页|下页|后页|后一页|next\s*page|more|>|›|»|>>)$/i;
+  const MAX_CATALOG_PAGES = 8;
+  const catalogCache = new Map();
   let syncVersion = 0;
 
   function normalizeText(value) {
@@ -158,7 +161,7 @@
   }
 
   function isLikelyChapter(anchor, absoluteHref) {
-    if (!anchor.text || EXCLUDED_CATALOG_TEXT.test(anchor.text)) {
+    if (!anchor.text || EXCLUDED_CATALOG_TEXT.test(anchor.text) || CATALOG_NEXT_PAGE_PATTERN.test(anchor.text)) {
       return false;
     }
 
@@ -182,6 +185,60 @@
         href
       });
     });
+
+    return chapters;
+  }
+
+  function isSameOriginUrl(leftHref, rightHref) {
+    try {
+      return new URL(leftHref).origin === new URL(rightHref).origin;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function parseCatalogNextPage(html, baseUrl, seenPages) {
+    const anchors = getAnchorMatches(html);
+
+    for (const anchor of anchors) {
+      const text = normalizeText(anchor.text);
+      const href = resolveUrl(anchor.href, baseUrl);
+
+      if (!href || !CATALOG_NEXT_PAGE_PATTERN.test(text) || !isSameOriginUrl(href, baseUrl)) {
+        continue;
+      }
+
+      if (seenPages && seenPages.has(href)) {
+        continue;
+      }
+
+      return href;
+    }
+
+    return null;
+  }
+
+  async function loadCatalogChapters(startHref, fetchCatalog, maxPages) {
+    const pagesSeen = new Set();
+    const chaptersSeen = new Set();
+    const chapters = [];
+    let nextHref = startHref;
+
+    while (nextHref && pagesSeen.size < maxPages) {
+      pagesSeen.add(nextHref);
+
+      const html = await fetchCatalog(nextHref);
+      parseCatalogChapters(html, nextHref).forEach((chapter) => {
+        if (chaptersSeen.has(chapter.href)) {
+          return;
+        }
+
+        chaptersSeen.add(chapter.href);
+        chapters.push(chapter);
+      });
+
+      nextHref = parseCatalogNextPage(html, nextHref, pagesSeen);
+    }
 
     return chapters;
   }
@@ -316,8 +373,16 @@
 
     try {
       const fetchCatalog = options && options.fetchCatalog ? options.fetchCatalog : defaultFetchCatalog;
-      const html = await fetchCatalog(targets.contents.href);
-      const chapters = parseCatalogChapters(html, targets.contents.href);
+      const maxPages = options && options.maxCatalogPages ? options.maxCatalogPages : MAX_CATALOG_PAGES;
+      const shouldUseCache = !(options && options.fetchCatalog);
+      let chapters = shouldUseCache ? catalogCache.get(targets.contents.href) : null;
+
+      if (!chapters) {
+        chapters = await loadCatalogChapters(targets.contents.href, fetchCatalog, maxPages);
+        if (shouldUseCache) {
+          catalogCache.set(targets.contents.href, chapters);
+        }
+      }
 
       if (version !== syncVersion) {
         return null;
@@ -343,6 +408,7 @@
     ACTIONS,
     detectChapterTargets,
     parseCatalogChapters,
+    parseCatalogNextPage,
     renderCatalogPanel,
     renderChapterNav,
     removeChapterNav,

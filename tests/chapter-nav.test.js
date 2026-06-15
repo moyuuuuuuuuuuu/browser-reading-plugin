@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   detectChapterTargets,
   parseCatalogChapters,
+  parseCatalogNextPage,
   renderCatalogPanel,
   renderChapterNav,
   removeChapterNav,
@@ -159,6 +160,15 @@ test("parses and deduplicates chapter links from catalog html", () => {
   ]);
 });
 
+test("detects catalog pagination next page without treating next chapter as pagination", () => {
+  const nextPage = parseCatalogNextPage(`
+    <a href="chapter-2.html">下一章</a>
+    <a href="catalog-2.html">下一页</a>
+  `, "https://example.test/book/catalog-1.html");
+
+  assert.equal(nextPage, "https://example.test/book/catalog-2.html");
+});
+
 test("renders previous and next controls only", () => {
   const doc = createDocumentFixture();
 
@@ -247,6 +257,41 @@ test("syncChapterNav renders right controls and fetched catalog when enabled", a
   assert.equal(nav.children[0].href, "https://example.test/1.html");
   assert.equal(nav.children[1].href, "https://example.test/3.html");
   assert.equal(panel.children[0].textContent, "目录 · 2章");
+});
+
+test("syncChapterNav follows paginated catalog pages and deduplicates chapters", async () => {
+  const doc = createDocumentFixture();
+  const fetched = [];
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: "https://example.test/book/catalog-1.html" })
+  ];
+
+  await syncChapterNav(doc, true, {
+    fetchCatalog: async (href) => {
+      fetched.push(href);
+
+      if (href.endsWith("catalog-1.html")) {
+        return `
+          <a href="1.html">第1章 初见</a>
+          <a href="2.html">第2章 风起</a>
+          <a href="catalog-2.html">下一页</a>
+        `;
+      }
+
+      return `
+        <a href="2.html">第2章 风起</a>
+        <a href="3.html">第3章 入城</a>
+      `;
+    }
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.deepEqual(fetched, [
+    "https://example.test/book/catalog-1.html",
+    "https://example.test/book/catalog-2.html"
+  ]);
+  assert.equal(panel.children[0].textContent, "目录 · 3章");
+  assert.equal(panel.children[1].children[2].href, "https://example.test/book/3.html");
 });
 
 test("syncChapterNav renders catalog fallback when fetch fails", async () => {
