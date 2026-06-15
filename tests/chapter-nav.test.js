@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   detectChapterTargets,
   parseCatalogChapters,
+  parseCatalogChaptersFromLinks,
   parseCatalogPageLinks,
   parseCatalogNextPage,
   renderCatalogPanel,
@@ -158,6 +159,21 @@ test("parses and deduplicates chapter links from catalog html", () => {
   assert.deepEqual(chapters, [
     { title: "第1章 初见", href: "https://example.test/book/chapter-1.html" },
     { title: "第2章 风起", href: "https://example.test/book/chapter-2.html" }
+  ]);
+});
+
+test("extracts current page chapter links as catalog fallback", () => {
+  const chapters = parseCatalogChaptersFromLinks([
+    linkFixture({ text: "返回目录", href: "https://m.qbxs8.net/partlist/10490/" }),
+    linkFixture({ text: "上一章", href: "https://m.qbxs8.net/partlist/10490/29393325.html" }),
+    linkFixture({ text: "点击阅读", href: "https://m.qbxs8.net/partlist/10490/29359284.html" }),
+    linkFixture({ text: "第1207章 顾葬天的备用方案？", href: "https://m.qbxs8.net/partlist/10490/32447973.html" }),
+    linkFixture({ text: "第1208章 绝路刚子", href: "https://m.qbxs8.net/partlist/10490/32448456.html" })
+  ], "https://m.qbxs8.net/partlist/10490/29393323.html");
+
+  assert.deepEqual(chapters, [
+    { title: "第1207章 顾葬天的备用方案？", href: "https://m.qbxs8.net/partlist/10490/32447973.html" },
+    { title: "第1208章 绝路刚子", href: "https://m.qbxs8.net/partlist/10490/32448456.html" }
   ]);
 });
 
@@ -342,6 +358,26 @@ test("syncChapterNav renders catalog fallback when fetch fails", async () => {
   assert.ok(panel);
   assert.equal(panel.children[0].textContent, "目录");
   assert.equal(panel.children[1].textContent, "目录加载失败");
+});
+
+test("syncChapterNav uses current page chapter links when catalog fetch fails", async () => {
+  const doc = createDocumentFixture();
+  doc.location = { href: "https://m.qbxs8.net/partlist/10490/29393323.html" };
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "返回目录", href: "https://m.qbxs8.net/partlist/10490/" }),
+    linkFixture({ text: "第1207章 顾葬天的备用方案？", href: "https://m.qbxs8.net/partlist/10490/32447973.html" }),
+    linkFixture({ text: "第1208章 绝路刚子", href: "https://m.qbxs8.net/partlist/10490/32448456.html" })
+  ];
+
+  await syncChapterNav(doc, true, {
+    fetchCatalog: async () => {
+      throw new Error("challenge");
+    }
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.ok(panel);
+  assert.equal(panel.children[0].textContent, "目录 · 2章");
 });
 
 test("syncChapterNav ignores stale catalog responses after disabling", async () => {

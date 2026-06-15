@@ -31,7 +31,7 @@
   ]);
 
   const CHAPTER_ACTIONS = Object.freeze(ACTIONS.filter((action) => action.key !== "contents"));
-  const EXCLUDED_CATALOG_TEXT = /^(首页|主页|目录|返回目录|章节目录|上一章|下一章|上章|下章|登录|注册|搜索|书架|返回|prev|previous|next|index|contents?|catalog)$/i;
+  const EXCLUDED_CATALOG_TEXT = /^(首页|主页|目录|返回目录|章节目录|上一章|下一章|上章|下章|登录|注册|搜索|书架|返回|点击阅读|开始阅读|继续阅读|阅读全文|阅读|prev|previous|next|index|contents?|catalog)$/i;
   const CHAPTER_TEXT_PATTERN = /(^第\s*[0-9零一二三四五六七八九十百千万两]+\s*[章节回卷集部篇])|(\bchapter\s*\d+\b)|(^\d+[\s.、_-]*\S+)/i;
   const CHAPTER_HREF_PATTERN = /(chapter|read|\/\d+\.html?$|[_-]\d+\.html?$)/i;
   const CATALOG_NEXT_PAGE_PATTERN = /^(下一页|下页|后页|后一页|next\s*page|more|>|›|»|>>)$/i;
@@ -124,6 +124,18 @@
     } catch (_error) {
       return "";
     }
+  }
+
+  function getDocumentHref(doc) {
+    if (doc && doc.location && doc.location.href) {
+      return doc.location.href;
+    }
+
+    if (typeof location !== "undefined" && location.href) {
+      return location.href;
+    }
+
+    return "https://example.test/";
   }
 
   function getAnchorMatchesFromHtml(html) {
@@ -224,6 +236,46 @@
     const chapters = [];
 
     getAnchorMatches(html).forEach((anchor) => {
+      const href = resolveUrl(anchor.href, baseUrl);
+
+      if (!href || seen.has(href) || !isLikelyChapter(anchor, href)) {
+        return;
+      }
+
+      seen.add(href);
+      chapters.push({
+        title: anchor.text,
+        href
+      });
+    });
+
+    return chapters;
+  }
+
+  function linkToAnchorMatch(link) {
+    return {
+      href: link && (link.href || (link.getAttribute && link.getAttribute("href"))) || "",
+      text: normalizeText(link && link.textContent),
+      attributes: normalizeText([
+        link && link.rel,
+        link && link.id,
+        link && link.className,
+        link && link.title,
+        link && link.getAttribute && link.getAttribute("aria-label")
+      ].filter(Boolean).join(" "))
+    };
+  }
+
+  function parseCatalogChaptersFromLinks(links, baseUrl) {
+    const seen = new Set();
+    const chapters = [];
+
+    Array.from(links || []).forEach((link) => {
+      if (!isVisibleLink(link)) {
+        return;
+      }
+
+      const anchor = linkToAnchorMatch(link);
       const href = resolveUrl(anchor.href, baseUrl);
 
       if (!href || seen.has(href) || !isLikelyChapter(anchor, href)) {
@@ -443,14 +495,24 @@
 
     const links = doc && doc.querySelectorAll ? doc.querySelectorAll("a[href]") : [];
     const targets = detectChapterTargets(links);
+    const pageHref = getDocumentHref(doc);
+    const pageChapters = parseCatalogChaptersFromLinks(links, pageHref);
     renderChapterNav(doc, targets);
 
     if (!targets.contents || !targets.contents.href) {
-      renderCatalogPanel(doc, { status: "empty", catalogHref: null, chapters: [] });
+      renderCatalogPanel(doc, {
+        status: pageChapters.length > 0 ? "ready" : "empty",
+        catalogHref: null,
+        chapters: pageChapters
+      });
       return null;
     }
 
-    renderCatalogPanel(doc, { status: "loading", catalogHref: targets.contents.href, chapters: [] });
+    renderCatalogPanel(doc, {
+      status: pageChapters.length > 0 ? "ready" : "loading",
+      catalogHref: targets.contents.href,
+      chapters: pageChapters
+    });
 
     try {
       const fetchCatalog = options && options.fetchCatalog ? options.fetchCatalog : defaultFetchCatalog;
@@ -472,14 +534,18 @@
       renderCatalogPanel(doc, {
         status: chapters.length > 0 ? "ready" : "empty",
         catalogHref: targets.contents.href,
-        chapters
+        chapters: chapters.length > 0 ? chapters : pageChapters
       });
     } catch (_error) {
       if (version !== syncVersion) {
         return null;
       }
 
-      renderCatalogPanel(doc, { status: "error", catalogHref: targets.contents.href, chapters: [] });
+      renderCatalogPanel(doc, {
+        status: pageChapters.length > 0 ? "ready" : "error",
+        catalogHref: targets.contents.href,
+        chapters: pageChapters
+      });
     }
 
     return null;
@@ -489,6 +555,7 @@
     ACTIONS,
     detectChapterTargets,
     parseCatalogChapters,
+    parseCatalogChaptersFromLinks,
     parseCatalogPageLinks,
     parseCatalogNextPage,
     renderCatalogPanel,
