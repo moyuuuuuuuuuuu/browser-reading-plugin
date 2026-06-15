@@ -39,6 +39,9 @@
   const CATALOG_PAGE_HREF_PATTERN = /(partlist|catalog|chapterlist|list|index)/i;
   const FULL_CATALOG_TEXT_PATTERN = /(全部章节|所有章节|完整目录|全部目录|完整章节|全部章节目录|查看全部|查看完整|更多章节|章节全集)/;
   const FULL_CATALOG_CONTROL_TEXT_PATTERN = /^(点击查看|查看|进入|更多|展开|打开|列表|目录|章节目录)$/;
+  const GENERIC_TITLE_PATTERN = /^(章节目录|目录|正文|阅读|最新章节|全部章节|完整目录)$/;
+  const CATALOG_CACHE_PREFIX = "brp:catalog:v1:";
+  const CATALOG_CACHE_VERSION = 1;
   const MAX_CATALOG_PAGES = 200;
   const catalogCache = new Map();
   let syncVersion = 0;
@@ -46,6 +49,62 @@
   // 统一清理文本空白，便于后续用关键词和正则匹配链接语义。
   function normalizeText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  // 从页面标题或站点标题中提取小说名，去掉章节号、目录页和站点后缀。
+  function normalizeBookName(value) {
+    const text = normalizeText(value)
+      .replace(/第\s*[0-9零一二三四五六七八九十百千万两]+\s*[章节回卷集部篇][^_\-|｜—–,，:：]*/g, " ")
+      .replace(/(最新章节|章节目录|全部章节|完整目录|全文阅读|无弹窗|免费阅读|手机版|小说网|阅读)/g, " ");
+    const parts = text
+      .split(/[_\-|｜—–,，:：]+/)
+      .map((part) => normalizeText(part))
+      .filter(Boolean)
+      .filter((part) => !GENERIC_TITLE_PATTERN.test(part));
+
+    return parts[0] || normalizeText(text);
+  }
+
+  // 根据当前文档提取小说名，缓存 key 会同时使用它和目录 URL。
+  function detectBookName(doc) {
+    const candidates = [];
+
+    if (doc && doc.title) {
+      candidates.push(doc.title);
+    }
+
+    if (doc && doc.querySelector) {
+      [
+        "meta[property='og:novel:book_name']",
+        "meta[property='og:title']",
+        "meta[name='book_name']",
+        "h1",
+        ".bookname",
+        ".book-name",
+        ".novel-title",
+        ".title"
+      ].forEach((selector) => {
+        const element = doc.querySelector(selector);
+        const value = element && (element.getAttribute && element.getAttribute("content") || element.textContent);
+        if (value) {
+          candidates.push(value);
+        }
+      });
+    }
+
+    for (const candidate of candidates) {
+      const bookName = normalizeBookName(candidate);
+      if (bookName) {
+        return bookName;
+      }
+    }
+
+    return "";
+  }
+
+  // 生成目录缓存 key：小说名用于隔离不同作品，目录 URL 用于隔离不同站点/目录。
+  function getCatalogCacheKey(catalogHref, bookName) {
+    return `${CATALOG_CACHE_PREFIX}${bookName || "未知小说"}::${catalogHref}`;
   }
 
   // 汇总一个链接的可见文本和属性信号，用于判断它是上一章、目录还是下一章。
@@ -582,6 +641,89 @@
     return response.text();
   }
 
+  // 获取扩展本地存储对象；测试环境或普通网页环境不可用时返回空。
+  function getStorageLocal() {
+    if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+      return null;
+    }
+
+    return chrome.storage.local;
+  }
+
+  // 判断缓存条目结构是否可用，避免旧版本或异常数据污染目录。
+  function normalizeCatalogCacheEntry(entry) {
+    if (!entry || entry.version !== CATALOG_CACHE_VERSION || !Array.isArray(entry.chapters)) {
+      return null;
+    }
+
+    return entry.chapters
+      .filter((chapter) => chapter && chapter.title && chapter.href)
+      .map((chapter) => ({
+        title: normalizeText(chapter.title),
+        href: String(chapter.href)
+      }));
+  }
+
+  // 从内存缓存或 chrome.storage.local 读取目录缓存。
+  async function readCatalogCache(cacheKey) {
+    const memoryEntry = catalogCache.get(cacheKey);
+    const memoryChapters = normalizeCatalogCacheEntry(memoryEntry);
+    if (memoryChapters) {
+      return memoryChapters;
+    }
+
+    const storage = getStorageLocal();
+    if (!storage || !storage.get) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      storage.get(cacheKey, (result) => {
+        const entry = result && result[cacheKey];
+        const chapters = normalizeCatalogCacheEntry(entry);
+
+        if (chapters) {
+          catalogCache.set(cacheKey, entry);
+        }
+
+        resolve(chapters);
+      });
+    });
+  }
+
+  // 写入目录缓存；页面内 Map 提升当前页性能，storage 让新章节页复用同一份目录。
+  async function writeCatalogCache(cacheKey, bookName, chapters) {
+    const entry = {
+      version: CATALOG_CACHE_VERSION,
+      bookName,
+      chapters
+    };
+    const storage = getStorageLocal();
+    catalogCache.set(cacheKey, entry);
+
+    if (!storage || !storage.set) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      storage.set({ [cacheKey]: entry }, resolve);
+    });
+  }
+
+  // 清除目录缓存，供“重新获取”按钮和强制刷新使用。
+  async function deleteCatalogCache(cacheKey) {
+    const storage = getStorageLocal();
+    catalogCache.delete(cacheKey);
+
+    if (!storage || !storage.remove) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      storage.remove(cacheKey, resolve);
+    });
+  }
+
   // 根据阅读增强开关同步左右面板，并处理目录抓取、缓存、兜底和过期请求。
   async function syncChapterNav(doc, enabled, options) {
     const version = ++syncVersion;
@@ -596,11 +738,13 @@
     const pageHref = getDocumentHref(doc);
     const pageChapters = parseCatalogChaptersFromLinks(links, pageHref);
     const forceRefresh = Boolean(options && options.forceRefresh);
+    const bookName = detectBookName(doc);
+    const cacheKey = targets.contents && targets.contents.href ? getCatalogCacheKey(targets.contents.href, bookName) : "";
     renderChapterNav(doc, targets);
 
     const refreshCatalog = () => {
-      if (targets.contents && targets.contents.href) {
-        catalogCache.delete(targets.contents.href);
+      if (cacheKey) {
+        deleteCatalogCache(cacheKey).catch((_error) => {});
       }
 
       syncChapterNav(doc, true, { forceRefresh: true }).catch((_error) => {});
@@ -626,16 +770,16 @@
       const fetchCatalog = options && options.fetchCatalog ? options.fetchCatalog : defaultFetchCatalog;
       const maxPages = options && options.maxCatalogPages ? options.maxCatalogPages : MAX_CATALOG_PAGES;
       const shouldUseCache = !(options && options.fetchCatalog) && !forceRefresh;
-      let chapters = shouldUseCache ? catalogCache.get(targets.contents.href) : null;
+      let chapters = shouldUseCache ? await readCatalogCache(cacheKey) : null;
 
       if (forceRefresh) {
-        catalogCache.delete(targets.contents.href);
+        await deleteCatalogCache(cacheKey);
       }
 
       if (!chapters) {
         chapters = await loadCatalogChapters(targets.contents.href, fetchCatalog, maxPages);
         if (!(options && options.fetchCatalog)) {
-          catalogCache.set(targets.contents.href, chapters);
+          await writeCatalogCache(cacheKey, bookName, chapters);
         }
       }
 

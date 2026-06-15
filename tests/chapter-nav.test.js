@@ -154,6 +154,55 @@ function createDocumentFixture() {
   };
 }
 
+function createChromeStorageFixture(initialValues) {
+  const values = { ...(initialValues || {}) };
+
+  return {
+    values,
+    api: {
+      runtime: {
+        lastError: null
+      },
+      storage: {
+        local: {
+          get(key, callback) {
+            callback({ [key]: values[key] });
+          },
+          set(nextValues, callback) {
+            Object.assign(values, nextValues);
+            callback();
+          },
+          remove(key, callback) {
+            delete values[key];
+            callback();
+          }
+        }
+      }
+    }
+  };
+}
+
+async function withGlobals(overrides, callback) {
+  const previous = {};
+
+  Object.keys(overrides).forEach((key) => {
+    previous[key] = globalThis[key];
+    globalThis[key] = overrides[key];
+  });
+
+  try {
+    return await callback();
+  } finally {
+    Object.keys(overrides).forEach((key) => {
+      if (previous[key] === undefined) {
+        delete globalThis[key];
+      } else {
+        globalThis[key] = previous[key];
+      }
+    });
+  }
+}
+
 test("parses and deduplicates chapter links from catalog html", () => {
   const chapters = parseCatalogChapters(`
     <nav><a href="/">首页</a><a href="/login">登录</a></nav>
@@ -357,6 +406,127 @@ test("syncChapterNav renders right controls and fetched catalog when enabled", a
   assert.equal(nav.children[0].href, "https://example.test/1.html");
   assert.equal(nav.children[1].href, "https://example.test/3.html");
   assert.equal(panel.children[0].textContent, "目录 · 2章");
+});
+
+test("syncChapterNav uses persisted catalog cache before fetching", async () => {
+  const doc = createDocumentFixture();
+  const catalogHref = "https://example.test/book/index.html";
+  doc.title = "测试小说 第3章";
+  const cacheKey = `brp:catalog:v1:测试小说::${catalogHref}`;
+  const storage = createChromeStorageFixture({
+    [cacheKey]: {
+      version: 1,
+      bookName: "测试小说",
+      chapters: [
+        { title: "第1章 缓存", href: "https://example.test/book/1.html" }
+      ]
+    }
+  });
+
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: catalogHref })
+  ];
+
+  await withGlobals({
+    chrome: storage.api,
+    fetch: async () => {
+      throw new Error("should not fetch when persisted cache exists");
+    }
+  }, async () => {
+    await syncChapterNav(doc, true);
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.equal(panel.children[0].textContent, "目录 · 1章");
+  assert.equal(panel.children[2].children[0].textContent, "第1章 缓存");
+});
+
+test("syncChapterNav clears persisted catalog cache on forced refresh", async () => {
+  const doc = createDocumentFixture();
+  const catalogHref = "https://example.test/book/refresh.html";
+  doc.title = "刷新小说_第1章";
+  const cacheKey = `brp:catalog:v1:刷新小说::${catalogHref}`;
+  const storage = createChromeStorageFixture({
+    [cacheKey]: {
+      version: 1,
+      bookName: "刷新小说",
+      chapters: [
+        { title: "第1章 旧缓存", href: "https://example.test/book/old.html" }
+      ]
+    }
+  });
+  let fetchCount = 0;
+
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: catalogHref })
+  ];
+
+  await withGlobals({
+    chrome: storage.api,
+    fetch: async () => {
+      fetchCount += 1;
+      return {
+        ok: true,
+        text: async () => '<a href="new.html">第2章 新目录</a>'
+      };
+    }
+  }, async () => {
+    await syncChapterNav(doc, true, { forceRefresh: true });
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.equal(fetchCount, 1);
+  assert.equal(panel.children[0].textContent, "目录 · 1章");
+  assert.equal(panel.children[2].children[0].textContent, "第2章 新目录");
+  assert.equal(storage.values[cacheKey].chapters[0].title, "第2章 新目录");
+});
+
+test("syncChapterNav separates persisted catalog cache by book name", async () => {
+  const firstDoc = createDocumentFixture();
+  const secondDoc = createDocumentFixture();
+  const catalogHref = "https://example.test/shared/index.html";
+  const firstKey = `brp:catalog:v1:第一本书::${catalogHref}`;
+  const secondKey = `brp:catalog:v1:第二本书::${catalogHref}`;
+  const storage = createChromeStorageFixture({
+    [firstKey]: {
+      version: 1,
+      bookName: "第一本书",
+      chapters: [
+        { title: "第1章 第一本缓存", href: "https://example.test/first/1.html" }
+      ]
+    }
+  });
+  let fetchCount = 0;
+
+  firstDoc.title = "第一本书 第9章";
+  firstDoc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: catalogHref })
+  ];
+  secondDoc.title = "第二本书 第1章";
+  secondDoc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: catalogHref })
+  ];
+
+  await withGlobals({
+    chrome: storage.api,
+    fetch: async () => {
+      fetchCount += 1;
+      return {
+        ok: true,
+        text: async () => '<a href="second-1.html">第1章 第二本目录</a>'
+      };
+    }
+  }, async () => {
+    await syncChapterNav(firstDoc, true);
+    await syncChapterNav(secondDoc, true);
+  });
+
+  const firstPanel = firstDoc.querySelector(".brp-catalog-panel");
+  const secondPanel = secondDoc.querySelector(".brp-catalog-panel");
+  assert.equal(fetchCount, 1);
+  assert.equal(firstPanel.children[2].children[0].textContent, "第1章 第一本缓存");
+  assert.equal(secondPanel.children[2].children[0].textContent, "第1章 第二本目录");
+  assert.equal(storage.values[secondKey].chapters[0].title, "第1章 第二本目录");
 });
 
 test("syncChapterNav follows paginated catalog pages and deduplicates chapters", async () => {
