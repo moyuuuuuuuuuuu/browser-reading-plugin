@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   detectChapterTargets,
   parseCatalogChapters,
+  parseCatalogPageLinks,
   parseCatalogNextPage,
   renderCatalogPanel,
   renderChapterNav,
@@ -169,6 +170,37 @@ test("detects catalog pagination next page without treating next chapter as pagi
   assert.equal(nextPage, "https://example.test/book/catalog-2.html");
 });
 
+test("detects numbered partlist catalog pagination links", () => {
+  const pageLinks = parseCatalogPageLinks(`
+    <a href="/partlist/10490/29393323.html">1</a>
+    <a href="/partlist/10490/29393324.html">2</a>
+    <a href="/partlist/10490/29393325.html">第3页</a>
+    <a href="/book/10490/2.html">第2章 风起</a>
+  `, "https://m.qbxs8.net/partlist/10490/29393323.html", new Set([
+    "https://m.qbxs8.net/partlist/10490/29393323.html"
+  ]));
+
+  assert.deepEqual(pageLinks, [
+    "https://m.qbxs8.net/partlist/10490/29393324.html",
+    "https://m.qbxs8.net/partlist/10490/29393325.html"
+  ]);
+});
+
+test("detects catalog pagination from select options", () => {
+  const pageLinks = parseCatalogPageLinks(`
+    <select>
+      <option value="/partlist/10490/29393323.html">第1页</option>
+      <option value="/partlist/10490/29393324.html">第2页</option>
+    </select>
+  `, "https://m.qbxs8.net/partlist/10490/29393323.html", new Set([
+    "https://m.qbxs8.net/partlist/10490/29393323.html"
+  ]));
+
+  assert.deepEqual(pageLinks, [
+    "https://m.qbxs8.net/partlist/10490/29393324.html"
+  ]);
+});
+
 test("renders previous and next controls only", () => {
   const doc = createDocumentFixture();
 
@@ -274,7 +306,7 @@ test("syncChapterNav follows paginated catalog pages and deduplicates chapters",
         return `
           <a href="1.html">第1章 初见</a>
           <a href="2.html">第2章 风起</a>
-          <a href="catalog-2.html">下一页</a>
+          <a href="catalog-2.html">2</a>
         `;
       }
 

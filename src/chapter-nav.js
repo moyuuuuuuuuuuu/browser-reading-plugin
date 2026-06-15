@@ -35,6 +35,8 @@
   const CHAPTER_TEXT_PATTERN = /(^第\s*[0-9零一二三四五六七八九十百千万两]+\s*[章节回卷集部篇])|(\bchapter\s*\d+\b)|(^\d+[\s.、_-]*\S+)/i;
   const CHAPTER_HREF_PATTERN = /(chapter|read|\/\d+\.html?$|[_-]\d+\.html?$)/i;
   const CATALOG_NEXT_PAGE_PATTERN = /^(下一页|下页|后页|后一页|next\s*page|more|>|›|»|>>)$/i;
+  const CATALOG_PAGE_NUMBER_PATTERN = /^(第\s*)?\d+\s*页?$/;
+  const CATALOG_PAGE_HREF_PATTERN = /(partlist|catalog|chapterlist|list|index)/i;
   const MAX_CATALOG_PAGES = 8;
   const catalogCache = new Map();
   let syncVersion = 0;
@@ -138,7 +140,8 @@
       if (hrefMatch) {
         matches.push({
           href: hrefMatch[1] || hrefMatch[2] || hrefMatch[3] || "",
-          text
+          text,
+          attributes
         });
       }
 
@@ -156,12 +159,60 @@
     const parsed = new DOMParser().parseFromString(String(html || ""), "text/html");
     return Array.from(parsed.querySelectorAll("a[href]")).map((anchor) => ({
       href: anchor.getAttribute("href") || "",
-      text: normalizeText(anchor.textContent)
+      text: normalizeText(anchor.textContent),
+      attributes: normalizeText([
+        anchor.getAttribute("rel"),
+        anchor.getAttribute("id"),
+        anchor.getAttribute("class"),
+        anchor.getAttribute("title"),
+        anchor.getAttribute("aria-label")
+      ].filter(Boolean).join(" "))
+    }));
+  }
+
+  function getOptionMatchesFromHtml(html) {
+    const matches = [];
+    const optionPattern = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+    let match = optionPattern.exec(String(html || ""));
+
+    while (match) {
+      const attributes = match[1] || "";
+      const valueMatch = /\bvalue\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attributes);
+      const text = normalizeText((match[2] || "").replace(/<[^>]*>/g, " "));
+
+      if (valueMatch) {
+        matches.push({
+          href: valueMatch[1] || valueMatch[2] || valueMatch[3] || "",
+          text,
+          attributes
+        });
+      }
+
+      match = optionPattern.exec(String(html || ""));
+    }
+
+    return matches;
+  }
+
+  function getOptionMatches(html) {
+    if (typeof DOMParser !== "function") {
+      return getOptionMatchesFromHtml(html);
+    }
+
+    const parsed = new DOMParser().parseFromString(String(html || ""), "text/html");
+    return Array.from(parsed.querySelectorAll("option[value]")).map((option) => ({
+      href: option.getAttribute("value") || "",
+      text: normalizeText(option.textContent),
+      attributes: normalizeText(option.outerHTML)
     }));
   }
 
   function isLikelyChapter(anchor, absoluteHref) {
     if (!anchor.text || EXCLUDED_CATALOG_TEXT.test(anchor.text) || CATALOG_NEXT_PAGE_PATTERN.test(anchor.text)) {
+      return false;
+    }
+
+    if (CATALOG_PAGE_NUMBER_PATTERN.test(anchor.text) && CATALOG_PAGE_HREF_PATTERN.test(absoluteHref)) {
       return false;
     }
 
@@ -198,33 +249,59 @@
   }
 
   function parseCatalogNextPage(html, baseUrl, seenPages) {
-    const anchors = getAnchorMatches(html);
+    return parseCatalogPageLinks(html, baseUrl, seenPages)[0] || null;
+  }
 
-    for (const anchor of anchors) {
-      const text = normalizeText(anchor.text);
-      const href = resolveUrl(anchor.href, baseUrl);
+  function isCatalogPageLink(anchor, href, baseUrl) {
+    const text = normalizeText(anchor.text);
+    const attributes = normalizeText(anchor.attributes);
 
-      if (!href || !CATALOG_NEXT_PAGE_PATTERN.test(text) || !isSameOriginUrl(href, baseUrl)) {
-        continue;
-      }
-
-      if (seenPages && seenPages.has(href)) {
-        continue;
-      }
-
-      return href;
+    if (!href || !isSameOriginUrl(href, baseUrl) || /^(上一章|下一章|上章|下章)$/i.test(text)) {
+      return false;
     }
 
-    return null;
+    if (CATALOG_NEXT_PAGE_PATTERN.test(text) || /\bnext\b/i.test(attributes)) {
+      return true;
+    }
+
+    if (CATALOG_PAGE_NUMBER_PATTERN.test(text) && CATALOG_PAGE_HREF_PATTERN.test(href)) {
+      return true;
+    }
+
+    return /第\s*\d+\s*页/.test(text) && CATALOG_PAGE_HREF_PATTERN.test(href);
+  }
+
+  function parseCatalogPageLinks(html, baseUrl, seenPages) {
+    const seen = new Set();
+    const links = [];
+
+    getAnchorMatches(html).concat(getOptionMatches(html)).forEach((anchor) => {
+      const href = resolveUrl(anchor.href, baseUrl);
+
+      if (!isCatalogPageLink(anchor, href, baseUrl) || (seenPages && seenPages.has(href)) || seen.has(href)) {
+        return;
+      }
+
+      seen.add(href);
+      links.push(href);
+    });
+
+    return links;
   }
 
   async function loadCatalogChapters(startHref, fetchCatalog, maxPages) {
     const pagesSeen = new Set();
     const chaptersSeen = new Set();
     const chapters = [];
-    let nextHref = startHref;
+    const queue = [startHref];
 
-    while (nextHref && pagesSeen.size < maxPages) {
+    while (queue.length > 0 && pagesSeen.size < maxPages) {
+      const nextHref = queue.shift();
+
+      if (!nextHref || pagesSeen.has(nextHref)) {
+        continue;
+      }
+
       pagesSeen.add(nextHref);
 
       const html = await fetchCatalog(nextHref);
@@ -237,7 +314,11 @@
         chapters.push(chapter);
       });
 
-      nextHref = parseCatalogNextPage(html, nextHref, pagesSeen);
+      parseCatalogPageLinks(html, nextHref, pagesSeen).forEach((href) => {
+        if (!pagesSeen.has(href) && !queue.includes(href) && queue.length + pagesSeen.size < maxPages) {
+          queue.push(href);
+        }
+      });
     }
 
     return chapters;
@@ -408,6 +489,7 @@
     ACTIONS,
     detectChapterTargets,
     parseCatalogChapters,
+    parseCatalogPageLinks,
     parseCatalogNextPage,
     renderCatalogPanel,
     renderChapterNav,
