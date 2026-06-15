@@ -42,6 +42,8 @@
   const GENERIC_TITLE_PATTERN = /^(章节目录|目录|正文|阅读|最新章节|全部章节|完整目录)$/;
   const CATALOG_CACHE_PREFIX = "brp:catalog:v1:";
   const CATALOG_CACHE_VERSION = 1;
+  const PANEL_POSITION_PREFIX = "brp:panel-position:v1:";
+  const PANEL_POSITION_VERSION = 1;
   const MAX_CATALOG_PAGES = 200;
   const catalogCache = new Map();
   let syncVersion = 0;
@@ -105,6 +107,24 @@
   // 生成目录缓存 key：小说名用于隔离不同作品，目录 URL 用于隔离不同站点/目录。
   function getCatalogCacheKey(catalogHref, bookName) {
     return `${CATALOG_CACHE_PREFIX}${bookName || "未知小说"}::${catalogHref}`;
+  }
+
+  // 读取当前页面域名，用于隔离不同站点的浮动面板停放位置。
+  function getDocumentHostname(doc) {
+    if (doc && doc.location && doc.location.hostname) {
+      return doc.location.hostname;
+    }
+
+    if (typeof location !== "undefined" && location.hostname) {
+      return location.hostname;
+    }
+
+    return "global";
+  }
+
+  // 生成浮动面板位置缓存 key，按站点和面板类型分别保存。
+  function getPanelPositionKey(doc, panelKey) {
+    return `${PANEL_POSITION_PREFIX}${getDocumentHostname(doc)}:${panelKey}`;
   }
 
   // 汇总一个链接的可见文本和属性信号，用于判断它是上一章、目录还是下一章。
@@ -543,6 +563,149 @@
     return element;
   }
 
+  // 判断保存的位置是否可用，避免损坏数据让面板飞出屏幕。
+  function normalizePanelPosition(entry) {
+    if (!entry || entry.version !== PANEL_POSITION_VERSION || !Number.isFinite(entry.left) || !Number.isFinite(entry.top)) {
+      return null;
+    }
+
+    return {
+      left: entry.left,
+      top: entry.top
+    };
+  }
+
+  // 获取视口大小；测试环境没有 window 时使用稳定兜底值。
+  function getViewportSize(doc) {
+    const view = doc && doc.defaultView || (typeof window !== "undefined" ? window : null);
+    return {
+      width: view && Number.isFinite(view.innerWidth) ? view.innerWidth : 1024,
+      height: view && Number.isFinite(view.innerHeight) ? view.innerHeight : 768
+    };
+  }
+
+  // 把面板坐标限制在视口内，至少保留 8px 边距。
+  function clampPanelPosition(doc, panel, position) {
+    const viewport = getViewportSize(doc);
+    const rect = panel && panel.getBoundingClientRect ? panel.getBoundingClientRect() : { width: 120, height: 80 };
+    const width = Number.isFinite(rect.width) && rect.width > 0 ? rect.width : 120;
+    const height = Number.isFinite(rect.height) && rect.height > 0 ? rect.height : 80;
+    const maxLeft = Math.max(8, viewport.width - width - 8);
+    const maxTop = Math.max(8, viewport.height - height - 8);
+
+    return {
+      left: Math.min(maxLeft, Math.max(8, Math.round(position.left))),
+      top: Math.min(maxTop, Math.max(8, Math.round(position.top)))
+    };
+  }
+
+  // 应用停放位置，清掉默认的左右停靠和垂直居中 transform。
+  function applyPanelPosition(panel, position) {
+    if (!panel || !panel.style || !position) {
+      return;
+    }
+
+    panel.style.left = `${position.left}px`;
+    panel.style.top = `${position.top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panel.style.transform = "none";
+  }
+
+  // 从 chrome.storage.local 读取面板停放位置。
+  async function readPanelPosition(positionKey) {
+    const storage = getStorageLocal();
+    if (!storage || !storage.get) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      storage.get(positionKey, (result) => {
+        resolve(normalizePanelPosition(result && result[positionKey]));
+      });
+    });
+  }
+
+  // 保存面板停放位置。
+  async function writePanelPosition(positionKey, position) {
+    const storage = getStorageLocal();
+    if (!storage || !storage.set || !position) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      storage.set({
+        [positionKey]: {
+          version: PANEL_POSITION_VERSION,
+          left: position.left,
+          top: position.top
+        }
+      }, resolve);
+    });
+  }
+
+  // 让浮动面板可以通过指定手柄拖动，并在松手后持久保存位置。
+  function enablePanelDrag(doc, panel, panelKey, handle) {
+    if (!doc || !panel || !handle || !handle.addEventListener) {
+      return;
+    }
+
+    const positionKey = getPanelPositionKey(doc, panelKey);
+    handle.setAttribute("title", "拖动调整位置");
+    handle.setAttribute("aria-label", "拖动调整位置");
+
+    readPanelPosition(positionKey).then((position) => {
+      if (position) {
+        applyPanelPosition(panel, clampPanelPosition(doc, panel, position));
+      }
+    });
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event && Number.isFinite(event.button) && event.button !== 0) {
+        return;
+      }
+
+      if (event && event.preventDefault) {
+        event.preventDefault();
+      }
+
+      const rect = panel.getBoundingClientRect ? panel.getBoundingClientRect() : { left: 0, top: 0 };
+      const startLeft = Number.isFinite(rect.left) ? rect.left : 0;
+      const startTop = Number.isFinite(rect.top) ? rect.top : 0;
+      const startX = event && Number.isFinite(event.clientX) ? event.clientX : startLeft;
+      const startY = event && Number.isFinite(event.clientY) ? event.clientY : startTop;
+      let currentPosition = clampPanelPosition(doc, panel, { left: startLeft, top: startTop });
+
+      const onMove = (moveEvent) => {
+        if (moveEvent && moveEvent.preventDefault) {
+          moveEvent.preventDefault();
+        }
+
+        const clientX = moveEvent && Number.isFinite(moveEvent.clientX) ? moveEvent.clientX : startX;
+        const clientY = moveEvent && Number.isFinite(moveEvent.clientY) ? moveEvent.clientY : startY;
+        currentPosition = clampPanelPosition(doc, panel, {
+          left: startLeft + clientX - startX,
+          top: startTop + clientY - startY
+        });
+        applyPanelPosition(panel, currentPosition);
+      };
+
+      const onUp = () => {
+        if (doc.removeEventListener) {
+          doc.removeEventListener("pointermove", onMove);
+          doc.removeEventListener("pointerup", onUp);
+        }
+
+        writePanelPosition(positionKey, currentPosition).catch((_error) => {});
+      };
+
+      if (doc.addEventListener) {
+        doc.addEventListener("pointermove", onMove);
+        doc.addEventListener("pointerup", onUp);
+      }
+    });
+  }
+
   // 渲染右侧上一章/下一章面板，不包含目录按钮。
   function renderChapterNav(doc, targets) {
     if (!doc || !doc.body) {
@@ -555,11 +718,17 @@
     nav.className = "brp-chapter-nav";
     nav.setAttribute("aria-label", "章节导航");
 
+    const dragHandle = doc.createElement("div");
+    dragHandle.className = "brp-chapter-nav__drag";
+    dragHandle.textContent = "拖动";
+    nav.appendChild(dragHandle);
+
     CHAPTER_ACTIONS.forEach((action) => {
       nav.appendChild(createNavItem(doc, action, targets && targets[action.key]));
     });
 
     doc.body.appendChild(nav);
+    enablePanelDrag(doc, nav, "chapter-nav", dragHandle);
     return nav;
   }
 
@@ -629,6 +798,7 @@
     }
 
     doc.body.appendChild(panel);
+    enablePanelDrag(doc, panel, "catalog", title);
     return panel;
   }
 

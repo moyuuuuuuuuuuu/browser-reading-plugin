@@ -144,6 +144,8 @@ html.brp-reading-enabled body .brp-catalog-panel__title {
   flex: 0 0 auto !important;
   margin-bottom: 12px !important;
   color: var(--brp-text) !important;
+  cursor: move !important;
+  user-select: none !important;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
   font-size: 16px !important;
   font-weight: 700 !important;
@@ -241,6 +243,23 @@ html.brp-reading-enabled body .brp-chapter-nav {
   pointer-events: auto !important;
 }
 
+html.brp-reading-enabled body .brp-chapter-nav__drag {
+  box-sizing: border-box !important;
+  min-height: 22px !important;
+  padding: 3px 6px !important;
+  border: 1px solid var(--brp-border) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--brp-surface) 82%, var(--brp-bg)) !important;
+  color: var(--brp-muted) !important;
+  cursor: move !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 11px !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+  user-select: none !important;
+}
+
 html.brp-reading-enabled body .brp-chapter-nav__item {
   box-sizing: border-box !important;
   display: flex !important;
@@ -307,5 +326,11 @@ html.brp-reading-enabled body .brp-chapter-nav__item--disabled {
     min-height: 34px !important;
     padding: 6px !important;
     font-size: 12px !important;
+  }
+
+  html.brp-reading-enabled body .brp-chapter-nav__drag {
+    min-height: 20px !important;
+    padding: 2px 4px !important;
+    font-size: 10px !important;
   }
 }

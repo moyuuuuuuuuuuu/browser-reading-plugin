@@ -88,6 +88,7 @@ test("ignores hidden links", () => {
 
 function createDocumentFixture() {
   const elements = [];
+  const listeners = {};
   const body = {
     appended: [],
     appendChild(element) {
@@ -106,6 +107,25 @@ function createDocumentFixture() {
   return {
     body,
     created: elements,
+    location: {
+      hostname: "example.test",
+      href: "https://example.test/"
+    },
+    defaultView: {
+      innerWidth: 1200,
+      innerHeight: 900
+    },
+    addEventListener(name, handler) {
+      listeners[name] = handler;
+    },
+    removeEventListener(name) {
+      delete listeners[name];
+    },
+    dispatchEvent(event) {
+      if (listeners[event.type]) {
+        listeners[event.type](event);
+      }
+    },
     querySelector(selector) {
       if (selector === ".brp-chapter-nav") {
         return body.appended.find((element) => element.className === "brp-chapter-nav") || null;
@@ -118,7 +138,7 @@ function createDocumentFixture() {
       return null;
     },
     createElement(tagName) {
-      return {
+      const element = {
         tagName: tagName.toUpperCase(),
         className: "",
         textContent: "",
@@ -128,8 +148,13 @@ function createDocumentFixture() {
         children: [],
         listeners: {},
         parentNode: null,
+        style: {},
+        ownerDocument: null,
         setAttribute(name, value) {
           this.attributes[name] = String(value);
+        },
+        getAttribute(name) {
+          return this.attributes[name] || "";
         },
         addEventListener(name, handler) {
           this.listeners[name] = handler;
@@ -144,12 +169,27 @@ function createDocumentFixture() {
             this.listeners.click();
           }
         },
+        dispatchEvent(event) {
+          if (this.listeners[event.type]) {
+            this.listeners[event.type](event);
+          }
+        },
+        getBoundingClientRect() {
+          return {
+            left: Number.parseFloat(this.style.left) || 20,
+            top: Number.parseFloat(this.style.top) || 30,
+            width: Number.parseFloat(this.style.width) || 120,
+            height: Number.parseFloat(this.style.height) || 80
+          };
+        },
         remove() {
           if (this.parentNode && this.parentNode.removeChild) {
             this.parentNode.removeChild(this);
           }
         }
       };
+      element.ownerDocument = this;
+      return element;
     }
   };
 }
@@ -311,9 +351,10 @@ test("renders previous and next controls only", () => {
 
   const nav = doc.querySelector(".brp-chapter-nav");
   assert.ok(nav);
-  assert.equal(nav.children.length, 2);
-  assert.equal(nav.children[0].href, "https://example.test/1.html");
-  assert.equal(nav.children[1].href, "https://example.test/3.html");
+  assert.equal(nav.children.length, 3);
+  assert.equal(nav.children[0].className, "brp-chapter-nav__drag");
+  assert.equal(nav.children[1].href, "https://example.test/1.html");
+  assert.equal(nav.children[2].href, "https://example.test/3.html");
 });
 
 test("renders catalog panel with chapter count and links", () => {
@@ -351,6 +392,93 @@ test("catalog refresh button calls its handler", () => {
 
   doc.querySelector(".brp-catalog-panel").children[1].click();
   assert.equal(clicked, true);
+});
+
+test("renderCatalogPanel applies persisted drag position", async () => {
+  const doc = createDocumentFixture();
+  const storage = createChromeStorageFixture({
+    "brp:panel-position:v1:example.test:catalog": {
+      version: 1,
+      left: 160,
+      top: 120
+    }
+  });
+
+  await withGlobals({ chrome: storage.api }, async () => {
+    renderCatalogPanel(doc, {
+      status: "ready",
+      catalogHref: "https://example.test/index.html",
+      chapters: [{ title: "第1章 初见", href: "https://example.test/1.html" }]
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.equal(panel.style.left, "160px");
+  assert.equal(panel.style.top, "120px");
+  assert.equal(panel.style.right, "auto");
+  assert.equal(panel.style.transform, "none");
+});
+
+test("renderCatalogPanel persists position after dragging title", async () => {
+  const doc = createDocumentFixture();
+  const storage = createChromeStorageFixture();
+
+  await withGlobals({ chrome: storage.api }, async () => {
+    renderCatalogPanel(doc, {
+      status: "ready",
+      catalogHref: "https://example.test/index.html",
+      chapters: [{ title: "第1章 初见", href: "https://example.test/1.html" }]
+    });
+
+    const panel = doc.querySelector(".brp-catalog-panel");
+    const title = panel.children[0];
+    title.dispatchEvent({
+      type: "pointerdown",
+      clientX: 30,
+      clientY: 40,
+      preventDefault() {}
+    });
+    doc.dispatchEvent({ type: "pointermove", clientX: 130, clientY: 90, preventDefault() {} });
+    doc.dispatchEvent({ type: "pointerup", preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  assert.deepEqual(storage.values["brp:panel-position:v1:example.test:catalog"], {
+    version: 1,
+    left: 120,
+    top: 80
+  });
+});
+
+test("renderChapterNav persists position after dragging handle", async () => {
+  const doc = createDocumentFixture();
+  const storage = createChromeStorageFixture();
+
+  await withGlobals({ chrome: storage.api }, async () => {
+    renderChapterNav(doc, {
+      previous: { href: "https://example.test/1.html" },
+      next: { href: "https://example.test/3.html" }
+    });
+
+    const nav = doc.querySelector(".brp-chapter-nav");
+    const handle = nav.children[0];
+    handle.dispatchEvent({
+      type: "pointerdown",
+      clientX: 25,
+      clientY: 35,
+      preventDefault() {}
+    });
+    doc.dispatchEvent({ type: "pointermove", clientX: 55, clientY: 95, preventDefault() {} });
+    doc.dispatchEvent({ type: "pointerup", preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  assert.deepEqual(storage.values["brp:panel-position:v1:example.test:chapter-nav"], {
+    version: 1,
+    left: 50,
+    top: 90
+  });
 });
 
 test("removeChapterNav removes the existing panel", () => {
@@ -402,9 +530,10 @@ test("syncChapterNav renders right controls and fetched catalog when enabled", a
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.ok(nav);
   assert.ok(panel);
-  assert.equal(nav.children.length, 2);
-  assert.equal(nav.children[0].href, "https://example.test/1.html");
-  assert.equal(nav.children[1].href, "https://example.test/3.html");
+  assert.equal(nav.children.length, 3);
+  assert.equal(nav.children[0].className, "brp-chapter-nav__drag");
+  assert.equal(nav.children[1].href, "https://example.test/1.html");
+  assert.equal(nav.children[2].href, "https://example.test/3.html");
   assert.equal(panel.children[0].textContent, "目录 · 2章");
 });
 
