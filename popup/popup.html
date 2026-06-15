@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>阅读增强</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="panel__header">
+        <div>
+          <h1>阅读增强</h1>
+          <p id="siteLabel">当前站点</p>
+        </div>
+        <label class="switch" title="启用或停用当前站点阅读增强">
+          <input id="enabled" type="checkbox">
+          <span class="switch__track"></span>
+        </label>
+      </header>
+
+      <section class="group">
+        <label class="field">
+          <span>主题</span>
+          <select id="theme">
+            <option value="paper">纸张</option>
+            <option value="eye">护眼</option>
+            <option value="light">亮色</option>
+            <option value="warm">暖色</option>
+            <option value="dark">暗色</option>
+            <option value="black">纯黑</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>字体</span>
+          <select id="fontFamily">
+            <option value="serif">衬线</option>
+            <option value="sans">无衬线</option>
+            <option value="kai">楷体</option>
+            <option value="system">系统</option>
+            <option value="mono">等宽</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="group">
+        <label class="range">
+          <span>字号 <output id="fontSizeValue"></output></span>
+          <input id="fontSize" type="range" min="14" max="32" step="1">
+        </label>
+
+        <label class="range">
+          <span>行高 <output id="lineHeightValue"></output></span>
+          <input id="lineHeight" type="range" min="1.35" max="2.4" step="0.05">
+        </label>
+
+        <label class="range">
+          <span>段落间距 <output id="paragraphSpacingValue"></output></span>
+          <input id="paragraphSpacing" type="range" min="0" max="1.8" step="0.1">
+        </label>
+
+        <label class="range">
+          <span>正文宽度 <output id="contentWidthValue"></output></span>
+          <input id="contentWidth" type="range" min="560" max="1200" step="20">
+        </label>
+
+        <label class="range">
+          <span>页面留白 <output id="pagePaddingValue"></output></span>
+          <input id="pagePadding" type="range" min="8" max="96" step="4">
+        </label>
+      </section>
+
+      <section class="group group--inline">
+        <label class="check">
+          <input id="cleanup" type="checkbox">
+          <span>弱化广告和浮层</span>
+        </label>
+        <button id="reset" type="button">恢复默认</button>
+      </section>
+
+      <p id="status" class="status" role="status">加载中...</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

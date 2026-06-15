@@ -1,0 +1,128 @@
+:root {
+  --brp-bg: #f4ecd8;
+  --brp-surface: #fbf5e7;
+  --brp-text: #2f2a22;
+  --brp-muted: #766b5a;
+  --brp-link: #6b4f1d;
+  --brp-border: rgba(69, 56, 38, 0.18);
+  --brp-font-family: Georgia, "Times New Roman", SimSun, serif;
+  --brp-font-size: 20px;
+  --brp-line-height: 1.85;
+  --brp-paragraph-spacing: 0.8em;
+  --brp-content-width: 820px;
+  --brp-page-padding: 32px;
+}
+
+html.brp-reading-enabled {
+  background: var(--brp-bg) !important;
+  color: var(--brp-text) !important;
+}
+
+html.brp-reading-enabled body {
+  box-sizing: border-box !important;
+  max-width: calc(var(--brp-content-width) + (var(--brp-page-padding) * 2)) !important;
+  min-height: 100vh !important;
+  margin: 0 auto !important;
+  padding: var(--brp-page-padding) !important;
+  background: var(--brp-bg) !important;
+  color: var(--brp-text) !important;
+  font-family: var(--brp-font-family) !important;
+  font-size: var(--brp-font-size) !important;
+  line-height: var(--brp-line-height) !important;
+  letter-spacing: 0 !important;
+}
+
+html.brp-reading-enabled body,
+html.brp-reading-enabled body :where(p, div, span, section, article, main, li, td, th, blockquote, pre, font, center) {
+  color: var(--brp-text) !important;
+  font-family: var(--brp-font-family) !important;
+  font-size: var(--brp-font-size) !important;
+  line-height: var(--brp-line-height) !important;
+}
+
+html.brp-reading-enabled body :where(main, article, section, #content, #chaptercontent, #readcontent, #booktxt, #BookText, #TextContent, .content, .chapter, .chapter-content, .read-content, .reader, .article, .article-content, .book-content, .entry-content, .post-content, .text, .txt) {
+  box-sizing: border-box !important;
+  max-width: var(--brp-content-width) !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  background: transparent !important;
+}
+
+html.brp-reading-enabled body :where(p) {
+  margin-top: 0 !important;
+  margin-bottom: var(--brp-paragraph-spacing) !important;
+}
+
+html.brp-reading-enabled body :where(h1, h2, h3, h4, h5, h6) {
+  max-width: var(--brp-content-width) !important;
+  margin: 1.1em auto 0.75em !important;
+  color: var(--brp-text) !important;
+  font-family: var(--brp-font-family) !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0 !important;
+}
+
+html.brp-reading-enabled body :where(a) {
+  color: var(--brp-link) !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 0.18em !important;
+}
+
+html.brp-reading-enabled body :where(img, video, canvas, iframe) {
+  max-width: 100% !important;
+}
+
+html.brp-reading-enabled body :where(input, textarea, select, button) {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+}
+
+html.brp-reading-enabled body :where(table) {
+  border-color: var(--brp-border) !important;
+}
+
+html.brp-reading-enabled body :where(hr) {
+  border: 0 !important;
+  border-top: 1px solid var(--brp-border) !important;
+}
+
+html.brp-reading-enabled body :where(blockquote, pre, code) {
+  background: color-mix(in srgb, var(--brp-surface) 86%, var(--brp-bg)) !important;
+  border-color: var(--brp-border) !important;
+}
+
+html.brp-reading-cleanup body :where(
+  .adsbygoogle,
+  [class~="ad"],
+  [class~="ads"],
+  [id~="ad"],
+  [id~="ads"],
+  [class*="advert" i],
+  [id*="advert" i],
+  [class*="banner" i],
+  [id*="banner" i],
+  [class*="popup" i],
+  [id*="popup" i],
+  [class*="float" i],
+  [id*="float" i],
+  [class*="sidebar" i],
+  [id*="sidebar" i],
+  [class*="recommend" i],
+  [id*="recommend" i],
+  [class*="share" i],
+  [id*="share" i],
+  [class*="toolbar" i],
+  [id*="toolbar" i]
+) {
+  display: none !important;
+}
+
+html.brp-reading-enabled body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--brp-bg);
+  pointer-events: none;
+}

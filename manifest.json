@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Browser Reading Plugin",
+  "version": "0.1.0",
+  "description": "Improve online novel reading pages with readable typography, themes, spacing, and light distraction cleanup.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_title": "阅读增强",
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "css": [
+        "src/content.css"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
