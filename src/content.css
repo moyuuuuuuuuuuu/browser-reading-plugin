@@ -30,6 +30,8 @@ html.brp-reading-enabled body {
   font-size: var(--brp-font-size) !important;
   line-height: var(--brp-line-height) !important;
   letter-spacing: 0 !important;
+  -webkit-font-smoothing: antialiased !important;
+  text-rendering: optimizeLegibility !important;
 }
 
 html.brp-reading-enabled body,
@@ -116,15 +118,6 @@ html.brp-reading-cleanup body :where(
   [id*="toolbar" i]
 ):not(.brp-chapter-nav):not(.brp-chapter-nav *) {
   display: none !important;
-}
-
-html.brp-reading-enabled body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: var(--brp-bg);
-  pointer-events: none;
 }
 
 html.brp-reading-enabled body .brp-chapter-nav {
