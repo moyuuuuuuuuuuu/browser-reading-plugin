@@ -80,6 +80,7 @@
 
   let currentSettings = { ...DEFAULT_SETTINGS };
   let readyPromise = Promise.resolve(currentSettings);
+  let chapterNavRetryTimers = [];
 
   function storageKey() {
     return `${STORAGE_PREFIX}${location.hostname || "local"}`;
@@ -114,6 +115,37 @@
     document.documentElement.style.setProperty(name, value);
   }
 
+  function clearChapterNavRetries() {
+    chapterNavRetryTimers.forEach((timer) => {
+      clearTimeout(timer);
+    });
+    chapterNavRetryTimers = [];
+  }
+
+  function syncChapterNav() {
+    if (!window.BRPChapterNav || typeof window.BRPChapterNav.syncChapterNav !== "function") {
+      return;
+    }
+
+    window.BRPChapterNav.syncChapterNav(document, currentSettings.enabled).catch((error) => {
+      console.warn("[Browser Reading Plugin] Failed to sync chapter navigation:", error);
+    });
+  }
+
+  function scheduleChapterNavSync() {
+    clearChapterNavRetries();
+    syncChapterNav();
+
+    if (!currentSettings.enabled) {
+      return;
+    }
+
+    [500, 1500, 3000].forEach((delay) => {
+      const timer = setTimeout(syncChapterNav, delay);
+      chapterNavRetryTimers.push(timer);
+    });
+  }
+
   function applySettings(settings) {
     currentSettings = normalizeSettings(settings);
 
@@ -138,11 +170,7 @@
     root.classList.toggle("brp-reading-cleanup", currentSettings.enabled && currentSettings.cleanup);
     root.dataset.brpTheme = currentSettings.theme;
 
-    if (window.BRPChapterNav && typeof window.BRPChapterNav.syncChapterNav === "function") {
-      window.BRPChapterNav.syncChapterNav(document, currentSettings.enabled).catch((error) => {
-        console.warn("[Browser Reading Plugin] Failed to sync chapter navigation:", error);
-      });
-    }
+    scheduleChapterNavSync();
   }
 
   function getFromStorage(key) {

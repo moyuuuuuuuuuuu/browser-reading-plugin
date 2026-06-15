@@ -186,16 +186,16 @@
     return chapters;
   }
 
-  function removeChapterNav(doc) {
-    const existing = doc && doc.querySelector ? doc.querySelector(".brp-chapter-nav") : null;
+  function removeElement(doc, selector) {
+    const existing = doc && doc.querySelector ? doc.querySelector(selector) : null;
     if (existing && existing.remove) {
       existing.remove();
     }
+  }
 
-    const catalog = doc && doc.querySelector ? doc.querySelector(".brp-catalog-panel") : null;
-    if (catalog && catalog.remove) {
-      catalog.remove();
-    }
+  function removeChapterNav(doc) {
+    removeElement(doc, ".brp-chapter-nav");
+    removeElement(doc, ".brp-catalog-panel");
   }
 
   function createNavItem(doc, action, target) {
@@ -219,7 +219,7 @@
       return null;
     }
 
-    removeChapterNav(doc);
+    removeElement(doc, ".brp-chapter-nav");
 
     const nav = doc.createElement("nav");
     nav.className = "brp-chapter-nav";
@@ -245,10 +245,7 @@
       return null;
     }
 
-    const existing = doc.querySelector ? doc.querySelector(".brp-catalog-panel") : null;
-    if (existing && existing.remove) {
-      existing.remove();
-    }
+    removeElement(doc, ".brp-catalog-panel");
 
     const panel = doc.createElement("aside");
     const chapters = state && Array.isArray(state.chapters) ? state.chapters : [];
