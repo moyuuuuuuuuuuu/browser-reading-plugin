@@ -605,6 +605,15 @@
       return;
     }
 
+    if (panel.style.setProperty) {
+      panel.style.setProperty("left", `${position.left}px`, "important");
+      panel.style.setProperty("top", `${position.top}px`, "important");
+      panel.style.setProperty("right", "auto", "important");
+      panel.style.setProperty("bottom", "auto", "important");
+      panel.style.setProperty("transform", "none", "important");
+      return;
+    }
+
     panel.style.left = `${position.left}px`;
     panel.style.top = `${position.top}px`;
     panel.style.right = "auto";

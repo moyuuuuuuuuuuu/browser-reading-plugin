@@ -138,6 +138,13 @@ function createDocumentFixture() {
       return null;
     },
     createElement(tagName) {
+      const style = {
+        priorities: {},
+        setProperty(name, value, priority) {
+          this[name] = String(value);
+          this.priorities[name] = priority || "";
+        }
+      };
       const element = {
         tagName: tagName.toUpperCase(),
         className: "",
@@ -148,7 +155,7 @@ function createDocumentFixture() {
         children: [],
         listeners: {},
         parentNode: null,
-        style: {},
+        style,
         ownerDocument: null,
         setAttribute(name, value) {
           this.attributes[name] = String(value);
@@ -418,6 +425,9 @@ test("renderCatalogPanel applies persisted drag position", async () => {
   assert.equal(panel.style.top, "120px");
   assert.equal(panel.style.right, "auto");
   assert.equal(panel.style.transform, "none");
+  assert.equal(panel.style.priorities.left, "important");
+  assert.equal(panel.style.priorities.top, "important");
+  assert.equal(panel.style.priorities.transform, "important");
 });
 
 test("renderCatalogPanel persists position after dragging title", async () => {
