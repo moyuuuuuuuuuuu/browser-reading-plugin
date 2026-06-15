@@ -196,6 +196,21 @@ test("detects full catalog entry before parsing latest-chapter catalog page", ()
   assert.equal(href, "https://m.qbxs8.net/partlist/10490/all.html");
 });
 
+test("detects full catalog entry from nearby heading text", () => {
+  const href = parseFullCatalogHref(`
+    <section class="latest">
+      <h2>最新章节</h2>
+      <a href="/partlist/10490/32448456.html">第1208章 绝路刚子</a>
+    </section>
+    <section class="all-chapters">
+      <h2>全部章节目录</h2>
+      <a href="/partlist/10490/all.html">点击查看</a>
+    </section>
+  `, "https://m.qbxs8.net/partlist/10490/");
+
+  assert.equal(href, "https://m.qbxs8.net/partlist/10490/all.html");
+});
+
 test("detects catalog pagination next page without treating next chapter as pagination", () => {
   const nextPage = parseCatalogNextPage(`
     <a href="chapter-2.html">下一章</a>
@@ -377,6 +392,30 @@ test("syncChapterNav follows paginated catalog pages and deduplicates chapters",
   ]);
   assert.equal(panel.children[0].textContent, "目录 · 3章");
   assert.equal(panel.children[2].children[2].href, "https://example.test/book/3.html");
+});
+
+test("syncChapterNav follows more than eight catalog pages by default", async () => {
+  const doc = createDocumentFixture();
+  const fetched = [];
+  doc.querySelectorAll = () => [
+    linkFixture({ text: "目录", href: "https://example.test/book/catalog-1.html" })
+  ];
+
+  await syncChapterNav(doc, true, {
+    fetchCatalog: async (href) => {
+      fetched.push(href);
+      const page = Number(/catalog-(\d+)\.html/.exec(href)[1]);
+      const next = page < 10 ? `<a href="catalog-${page + 1}.html">下一页</a>` : "";
+      return `
+        <a href="chapter-${page}.html">第${page}章 标题</a>
+        ${next}
+      `;
+    }
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.equal(fetched.length, 10);
+  assert.equal(panel.children[0].textContent, "目录 · 10章");
 });
 
 test("syncChapterNav follows full catalog entry before paginated catalog pages", async () => {

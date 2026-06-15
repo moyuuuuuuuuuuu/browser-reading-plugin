@@ -38,7 +38,8 @@
   const CATALOG_PAGE_NUMBER_PATTERN = /^(第\s*)?\d+\s*页?$/;
   const CATALOG_PAGE_HREF_PATTERN = /(partlist|catalog|chapterlist|list|index)/i;
   const FULL_CATALOG_TEXT_PATTERN = /(全部章节|所有章节|完整目录|全部目录|完整章节|全部章节目录|查看全部|查看完整|更多章节|章节全集)/;
-  const MAX_CATALOG_PAGES = 8;
+  const FULL_CATALOG_CONTROL_TEXT_PATTERN = /^(点击查看|查看|进入|更多|展开|打开|列表|目录|章节目录)$/;
+  const MAX_CATALOG_PAGES = 200;
   const catalogCache = new Map();
   let syncVersion = 0;
 
@@ -147,27 +148,36 @@
     return "https://example.test/";
   }
 
+  // 去掉 HTML 标签并压缩空白，给正则兜底解析提供可读上下文。
+  function normalizeHtmlText(value) {
+    return normalizeText(String(value || "").replace(/<[^>]*>/g, " "));
+  }
+
   // 在没有 DOMParser 的测试环境中，用轻量解析提取 HTML 里的 a[href]。
   function getAnchorMatchesFromHtml(html) {
     const matches = [];
+    const source = String(html || "");
     const anchorPattern = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
-    let match = anchorPattern.exec(String(html || ""));
+    let match = anchorPattern.exec(source);
 
     while (match) {
       const attributes = match[1] || "";
       const hrefMatch = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attributes);
       const rawText = match[2] || "";
-      const text = normalizeText(rawText.replace(/<[^>]*>/g, " "));
+      const text = normalizeHtmlText(rawText);
 
       if (hrefMatch) {
+        const contextStart = Math.max(0, match.index - 240);
+        const contextEnd = Math.min(source.length, anchorPattern.lastIndex + 240);
         matches.push({
           href: hrefMatch[1] || hrefMatch[2] || hrefMatch[3] || "",
           text,
-          attributes
+          attributes,
+          context: normalizeHtmlText(source.slice(contextStart, contextEnd))
         });
       }
 
-      match = anchorPattern.exec(String(html || ""));
+      match = anchorPattern.exec(source);
     }
 
     return matches;
@@ -189,7 +199,8 @@
         anchor.getAttribute("class"),
         anchor.getAttribute("title"),
         anchor.getAttribute("aria-label")
-      ].filter(Boolean).join(" "))
+      ].filter(Boolean).join(" ")),
+      context: normalizeText((anchor.closest("section, article, main, nav, div, ul, ol, table, tbody, tr") || anchor.parentElement || anchor).textContent)
     }));
   }
 
@@ -326,6 +337,7 @@
   // 在“最新章节”目录页中寻找真正的完整目录入口。
   function parseFullCatalogHref(html, baseUrl, seenPages) {
     const anchors = getAnchorMatches(html);
+    const candidates = [];
 
     for (const anchor of anchors) {
       const href = resolveUrl(anchor.href, baseUrl);
@@ -334,9 +346,26 @@
         continue;
       }
 
-      if (FULL_CATALOG_TEXT_PATTERN.test(normalizeText(anchor.text))) {
+      const text = normalizeText(anchor.text);
+      const attributes = normalizeText(anchor.attributes);
+      const context = normalizeText(anchor.context);
+      const directSignal = `${text} ${attributes}`.trim();
+      const contextSignal = `${directSignal} ${context}`.trim();
+      const hasDirectFullText = FULL_CATALOG_TEXT_PATTERN.test(directSignal);
+      const hasContextFullText = FULL_CATALOG_TEXT_PATTERN.test(contextSignal);
+      const isGenericControl = FULL_CATALOG_CONTROL_TEXT_PATTERN.test(text);
+
+      if (hasDirectFullText) {
         return href;
       }
+
+      if (hasContextFullText && (isGenericControl || !isLikelyChapter(anchor, href))) {
+        candidates.push(href);
+      }
+    }
+
+    if (candidates.length > 0) {
+      return candidates[0];
     }
 
     return null;
