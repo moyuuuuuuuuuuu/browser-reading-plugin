@@ -44,6 +44,8 @@
   const CATALOG_CACHE_VERSION = 1;
   const PANEL_POSITION_PREFIX = "brp:panel-position:v1:";
   const PANEL_POSITION_VERSION = 1;
+  const PANEL_COLLAPSE_PREFIX = "brp:panel-collapse:v1:";
+  const PANEL_COLLAPSE_VERSION = 1;
   const MAX_CATALOG_PAGES = 200;
   const catalogCache = new Map();
   let syncVersion = 0;
@@ -125,6 +127,11 @@
   // 生成浮动面板位置缓存 key，按站点和面板类型分别保存。
   function getPanelPositionKey(doc, panelKey) {
     return `${PANEL_POSITION_PREFIX}${getDocumentHostname(doc)}:${panelKey}`;
+  }
+
+  // 生成浮动面板折叠状态缓存 key，按站点和面板类型分别保存。
+  function getPanelCollapseKey(doc, panelKey) {
+    return `${PANEL_COLLAPSE_PREFIX}${getDocumentHostname(doc)}:${panelKey}`;
   }
 
   // 汇总一个链接的可见文本和属性信号，用于判断它是上一章、目录还是下一章。
@@ -653,6 +660,72 @@
     });
   }
 
+  // 在不依赖 classList 的测试环境里切换 class。
+  function toggleClassName(element, className, enabled) {
+    if (!element) {
+      return;
+    }
+
+    const names = new Set(normalizeText(element.className).split(" ").filter(Boolean));
+    if (enabled) {
+      names.add(className);
+    } else {
+      names.delete(className);
+    }
+    element.className = Array.from(names).join(" ");
+  }
+
+  // 判断保存的折叠状态是否可用。
+  function normalizePanelCollapseEntry(entry) {
+    if (!entry || entry.version !== PANEL_COLLAPSE_VERSION || typeof entry.collapsed !== "boolean") {
+      return null;
+    }
+
+    return entry.collapsed;
+  }
+
+  // 从 chrome.storage.local 读取面板折叠状态。
+  async function readPanelCollapsed(collapseKey) {
+    const storage = getStorageLocal();
+    if (!storage || !storage.get) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      storage.get(collapseKey, (result) => {
+        resolve(normalizePanelCollapseEntry(result && result[collapseKey]));
+      });
+    });
+  }
+
+  // 保存面板折叠状态。
+  async function writePanelCollapsed(collapseKey, collapsed) {
+    const storage = getStorageLocal();
+    if (!storage || !storage.set) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      storage.set({
+        [collapseKey]: {
+          version: PANEL_COLLAPSE_VERSION,
+          collapsed: Boolean(collapsed)
+        }
+      }, resolve);
+    });
+  }
+
+  // 应用目录面板折叠状态，并同步按钮文案。
+  function applyCatalogCollapsed(panel, toggle, collapsed) {
+    toggleClassName(panel, "brp-catalog-panel--collapsed", collapsed);
+
+    if (toggle) {
+      toggle.textContent = collapsed ? "展开" : "收起";
+      toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      toggle.setAttribute("title", collapsed ? "展开目录" : "收起目录");
+    }
+  }
+
   // 让浮动面板可以通过指定手柄拖动，并在松手后持久保存位置。
   function enablePanelDrag(doc, panel, panelKey, handle) {
     if (!doc || !panel || !handle || !handle.addEventListener) {
@@ -766,7 +839,17 @@
 
     const title = doc.createElement("div");
     title.className = "brp-catalog-panel__title";
-    title.textContent = status === "ready" ? `目录 · ${chapters.length}章` : "目录";
+    const titleText = doc.createElement("span");
+    titleText.className = "brp-catalog-panel__title-text";
+    titleText.textContent = status === "ready" ? `目录 · ${chapters.length}章` : "目录";
+    title.appendChild(titleText);
+
+    const collapseToggle = doc.createElement("button");
+    collapseToggle.className = "brp-catalog-panel__collapse";
+    collapseToggle.textContent = "收起";
+    collapseToggle.setAttribute("type", "button");
+    collapseToggle.setAttribute("aria-expanded", "true");
+    title.appendChild(collapseToggle);
     panel.appendChild(title);
 
     if (catalogHref) {
@@ -807,6 +890,28 @@
     }
 
     doc.body.appendChild(panel);
+    const collapseKey = getPanelCollapseKey(doc, "catalog");
+    let isCollapsed = false;
+    collapseToggle.addEventListener("pointerdown", (event) => {
+      if (event && event.stopPropagation) {
+        event.stopPropagation();
+      }
+    });
+    collapseToggle.addEventListener("click", (event) => {
+      if (event && event.stopPropagation) {
+        event.stopPropagation();
+      }
+
+      isCollapsed = !isCollapsed;
+      applyCatalogCollapsed(panel, collapseToggle, isCollapsed);
+      writePanelCollapsed(collapseKey, isCollapsed).catch((_error) => {});
+    });
+    readPanelCollapsed(collapseKey).then((collapsed) => {
+      if (typeof collapsed === "boolean") {
+        isCollapsed = collapsed;
+        applyCatalogCollapsed(panel, collapseToggle, isCollapsed);
+      }
+    });
     enablePanelDrag(doc, panel, "catalog", title);
     return panel;
   }

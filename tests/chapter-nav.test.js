@@ -14,6 +14,10 @@ const {
   syncChapterNav
 } = require("../src/chapter-nav.js");
 
+function normalizeClassName(value) {
+  return String(value || "").split(/\s+/).filter(Boolean);
+}
+
 function linkFixture({
   text = "",
   href = "https://example.test/",
@@ -128,11 +132,11 @@ function createDocumentFixture() {
     },
     querySelector(selector) {
       if (selector === ".brp-chapter-nav") {
-        return body.appended.find((element) => element.className === "brp-chapter-nav") || null;
+        return body.appended.find((element) => normalizeClassName(element.className).includes("brp-chapter-nav")) || null;
       }
 
       if (selector === ".brp-catalog-panel") {
-        return body.appended.find((element) => element.className === "brp-catalog-panel") || null;
+        return body.appended.find((element) => normalizeClassName(element.className).includes("brp-catalog-panel")) || null;
       }
 
       return null;
@@ -378,7 +382,8 @@ test("renders catalog panel with chapter count and links", () => {
 
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.ok(panel);
-  assert.equal(panel.children[0].textContent, "目录 · 2章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 2章");
+  assert.equal(panel.children[0].children[1].textContent, "收起");
   assert.equal(panel.children[1].textContent, "重新获取");
   assert.equal(panel.children[2].children.length, 2);
   assert.equal(panel.children[2].children[0].href, "https://example.test/1.html");
@@ -399,6 +404,54 @@ test("catalog refresh button calls its handler", () => {
 
   doc.querySelector(".brp-catalog-panel").children[1].click();
   assert.equal(clicked, true);
+});
+
+test("catalog collapse button hides body content and persists state", async () => {
+  const doc = createDocumentFixture();
+  const storage = createChromeStorageFixture();
+
+  await withGlobals({ chrome: storage.api }, async () => {
+    renderCatalogPanel(doc, {
+      status: "ready",
+      catalogHref: "https://example.test/index.html",
+      chapters: [{ title: "第1章 初见", href: "https://example.test/1.html" }]
+    });
+
+    const panel = doc.querySelector(".brp-catalog-panel");
+    panel.children[0].children[1].click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.match(panel.className, /brp-catalog-panel--collapsed/);
+  assert.equal(panel.children[0].children[1].textContent, "展开");
+  assert.deepEqual(storage.values["brp:panel-collapse:v1:example.test:catalog"], {
+    version: 1,
+    collapsed: true
+  });
+});
+
+test("renderCatalogPanel applies persisted collapsed state", async () => {
+  const doc = createDocumentFixture();
+  const storage = createChromeStorageFixture({
+    "brp:panel-collapse:v1:example.test:catalog": {
+      version: 1,
+      collapsed: true
+    }
+  });
+
+  await withGlobals({ chrome: storage.api }, async () => {
+    renderCatalogPanel(doc, {
+      status: "ready",
+      catalogHref: "https://example.test/index.html",
+      chapters: [{ title: "第1章 初见", href: "https://example.test/1.html" }]
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const panel = doc.querySelector(".brp-catalog-panel");
+  assert.match(panel.className, /brp-catalog-panel--collapsed/);
+  assert.equal(panel.children[0].children[1].textContent, "展开");
 });
 
 test("renderCatalogPanel applies persisted drag position", async () => {
@@ -544,7 +597,7 @@ test("syncChapterNav renders right controls and fetched catalog when enabled", a
   assert.equal(nav.children[0].className, "brp-chapter-nav__drag");
   assert.equal(nav.children[1].href, "https://example.test/1.html");
   assert.equal(nav.children[2].href, "https://example.test/3.html");
-  assert.equal(panel.children[0].textContent, "目录 · 2章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 2章");
 });
 
 test("syncChapterNav uses persisted catalog cache before fetching", async () => {
@@ -576,7 +629,7 @@ test("syncChapterNav uses persisted catalog cache before fetching", async () => 
   });
 
   const panel = doc.querySelector(".brp-catalog-panel");
-  assert.equal(panel.children[0].textContent, "目录 · 1章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 1章");
   assert.equal(panel.children[2].children[0].textContent, "第1章 缓存");
 });
 
@@ -615,7 +668,7 @@ test("syncChapterNav clears persisted catalog cache on forced refresh", async ()
 
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.equal(fetchCount, 1);
-  assert.equal(panel.children[0].textContent, "目录 · 1章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 1章");
   assert.equal(panel.children[2].children[0].textContent, "第2章 新目录");
   assert.equal(storage.values[cacheKey].chapters[0].title, "第2章 新目录");
 });
@@ -699,7 +752,7 @@ test("syncChapterNav follows paginated catalog pages and deduplicates chapters",
     "https://example.test/book/catalog-1.html",
     "https://example.test/book/catalog-2.html"
   ]);
-  assert.equal(panel.children[0].textContent, "目录 · 3章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 3章");
   assert.equal(panel.children[2].children[2].href, "https://example.test/book/3.html");
 });
 
@@ -724,7 +777,7 @@ test("syncChapterNav follows more than eight catalog pages by default", async ()
 
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.equal(fetched.length, 10);
-  assert.equal(panel.children[0].textContent, "目录 · 10章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 10章");
 });
 
 test("syncChapterNav follows full catalog entry before paginated catalog pages", async () => {
@@ -763,7 +816,7 @@ test("syncChapterNav follows full catalog entry before paginated catalog pages",
     "https://m.qbxs8.net/partlist/10490/all.html",
     "https://m.qbxs8.net/partlist/10490/all-2.html"
   ]);
-  assert.equal(panel.children[0].textContent, "目录 · 3章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 3章");
 });
 
 test("syncChapterNav renders catalog fallback when fetch fails", async () => {
@@ -780,7 +833,7 @@ test("syncChapterNav renders catalog fallback when fetch fails", async () => {
 
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.ok(panel);
-  assert.equal(panel.children[0].textContent, "目录");
+  assert.equal(panel.children[0].children[0].textContent, "目录");
   assert.equal(panel.children[1].textContent, "重新获取");
   assert.equal(panel.children[2].textContent, "目录加载失败");
 });
@@ -802,7 +855,7 @@ test("syncChapterNav uses current page chapter links when catalog fetch fails", 
 
   const panel = doc.querySelector(".brp-catalog-panel");
   assert.ok(panel);
-  assert.equal(panel.children[0].textContent, "目录 · 2章");
+  assert.equal(panel.children[0].children[0].textContent, "目录 · 2章");
 });
 
 test("syncChapterNav ignores stale catalog responses after disabling", async () => {
