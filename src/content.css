@@ -30,6 +30,8 @@ html.brp-reading-enabled body {
   font-size: var(--brp-font-size) !important;
   line-height: var(--brp-line-height) !important;
   letter-spacing: 0 !important;
+  -webkit-font-smoothing: antialiased !important;
+  text-rendering: optimizeLegibility !important;
 }
 
 html.brp-reading-enabled body,
@@ -114,15 +116,265 @@ html.brp-reading-cleanup body :where(
   [id*="share" i],
   [class*="toolbar" i],
   [id*="toolbar" i]
-) {
+):not(.brp-chapter-nav):not(.brp-chapter-nav *):not(.brp-catalog-panel):not(.brp-catalog-panel *) {
   display: none !important;
 }
 
-html.brp-reading-enabled body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: var(--brp-bg);
-  pointer-events: none;
+html.brp-reading-enabled body .brp-catalog-panel {
+  position: fixed !important;
+  top: 50% !important;
+  left: max(12px, calc((100vw - var(--brp-content-width)) / 2 - 396px)) !important;
+  z-index: 2147483646 !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: 364px !important;
+  max-height: min(82vh, 780px) !important;
+  padding: 14px !important;
+  border: 1px solid var(--brp-border) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--brp-surface) 95%, var(--brp-bg)) !important;
+  color: var(--brp-text) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14) !important;
+  transform: translateY(-50%) !important;
+  pointer-events: auto !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__title {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  flex: 0 0 auto !important;
+  margin-bottom: 12px !important;
+  color: var(--brp-text) !important;
+  cursor: move !important;
+  user-select: none !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  line-height: 1.3 !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__title-text {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__collapse {
+  box-sizing: border-box !important;
+  flex: 0 0 auto !important;
+  min-width: 48px !important;
+  height: 28px !important;
+  padding: 4px 8px !important;
+  border: 1px solid var(--brp-border) !important;
+  border-radius: 6px !important;
+  background: color-mix(in srgb, var(--brp-surface) 82%, var(--brp-bg)) !important;
+  color: var(--brp-link) !important;
+  cursor: pointer !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__collapse:hover {
+  background: var(--brp-surface) !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel--collapsed {
+  width: 188px !important;
+  max-height: none !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel--collapsed > :not(.brp-catalog-panel__title) {
+  display: none !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel--collapsed .brp-catalog-panel__title {
+  margin-bottom: 0 !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__refresh {
+  box-sizing: border-box !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  margin: 0 0 12px !important;
+  padding: 8px 10px !important;
+  border: 1px solid var(--brp-border) !important;
+  border-radius: 6px !important;
+  background: color-mix(in srgb, var(--brp-surface) 82%, var(--brp-bg)) !important;
+  color: var(--brp-link) !important;
+  cursor: pointer !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__refresh:hover {
+  background: var(--brp-surface) !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__list {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: auto !important;
+  padding-right: 4px !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__item,
+html.brp-reading-enabled body .brp-catalog-panel__fallback {
+  box-sizing: border-box !important;
+  display: block !important;
+  float: none !important;
+  clear: none !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 42px !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding: 9px 10px !important;
+  border-radius: 6px !important;
+  color: var(--brp-link) !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 15px !important;
+  font-style: normal !important;
+  font-weight: 500 !important;
+  line-height: 1.55 !important;
+  text-decoration: none !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+  -webkit-line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  line-clamp: unset !important;
+  transform: none !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__item:hover,
+html.brp-reading-enabled body .brp-catalog-panel__fallback:hover {
+  background: color-mix(in srgb, var(--brp-link) 10%, transparent) !important;
+  text-decoration: none !important;
+}
+
+html.brp-reading-enabled body .brp-catalog-panel__message {
+  padding: 10px 8px !important;
+  color: var(--brp-muted) !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav {
+  position: fixed !important;
+  top: 50% !important;
+  right: max(12px, calc((100vw - var(--brp-content-width)) / 2 - 96px)) !important;
+  z-index: 2147483646 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  width: 76px !important;
+  transform: translateY(-50%) !important;
+  pointer-events: auto !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav__drag {
+  box-sizing: border-box !important;
+  min-height: 22px !important;
+  padding: 3px 6px !important;
+  border: 1px solid var(--brp-border) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--brp-surface) 82%, var(--brp-bg)) !important;
+  color: var(--brp-muted) !important;
+  cursor: move !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 11px !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+  user-select: none !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav__item {
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 38px !important;
+  padding: 8px 10px !important;
+  border: 1px solid var(--brp-border) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--brp-surface) 92%, var(--brp-bg)) !important;
+  color: var(--brp-link) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+  text-decoration: none !important;
+  white-space: normal !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav__item:hover {
+  background: var(--brp-surface) !important;
+  text-decoration: none !important;
+}
+
+html.brp-reading-enabled body .brp-chapter-nav__item--disabled {
+  color: var(--brp-muted) !important;
+  cursor: not-allowed !important;
+  opacity: 0.56 !important;
+}
+
+@media (max-width: 760px) {
+  html.brp-reading-enabled body .brp-catalog-panel {
+    left: 8px !important;
+    width: min(48vw, 220px) !important;
+    max-height: 64vh !important;
+    padding: 10px !important;
+  }
+
+  html.brp-reading-enabled body .brp-catalog-panel__title {
+    margin-bottom: 8px !important;
+    font-size: 13px !important;
+  }
+
+  html.brp-reading-enabled body .brp-catalog-panel__refresh {
+    margin-bottom: 8px !important;
+    padding: 6px 8px !important;
+    font-size: 12px !important;
+  }
+
+  html.brp-reading-enabled body .brp-catalog-panel__item,
+  html.brp-reading-enabled body .brp-catalog-panel__fallback,
+  html.brp-reading-enabled body .brp-catalog-panel__message {
+    padding: 6px 8px !important;
+    font-size: 13px !important;
+  }
+
+  html.brp-reading-enabled body .brp-chapter-nav {
+    right: 8px !important;
+    width: 54px !important;
+  }
+
+  html.brp-reading-enabled body .brp-chapter-nav__item {
+    min-height: 34px !important;
+    padding: 6px !important;
+    font-size: 12px !important;
+  }
+
+  html.brp-reading-enabled body .brp-chapter-nav__drag {
+    min-height: 20px !important;
+    padding: 2px 4px !important;
+    font-size: 10px !important;
+  }
 }

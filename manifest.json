@@ -26,6 +26,7 @@
         "src/content.css"
       ],
       "js": [
+        "src/chapter-nav.js",
         "src/content.js"
       ],
       "run_at": "document_idle"

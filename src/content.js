@@ -80,11 +80,14 @@
 
   let currentSettings = { ...DEFAULT_SETTINGS };
   let readyPromise = Promise.resolve(currentSettings);
+  let chapterNavRetryTimers = [];
 
+  // 按当前域名生成设置存储 key，让不同小说站保持独立配置。
   function storageKey() {
     return `${STORAGE_PREFIX}${location.hostname || "local"}`;
   }
 
+  // 将用户输入限制在允许范围内，非法值回退到默认值。
   function clampNumber(value, min, max, fallback) {
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue)) {
@@ -94,6 +97,7 @@
     return Math.min(max, Math.max(min, numberValue));
   }
 
+  // 合并并校验设置对象，确保内容脚本只使用安全、完整的配置。
   function normalizeSettings(settings) {
     const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
 
@@ -110,10 +114,46 @@
     };
   }
 
+  // 写入 CSS 变量，驱动页面阅读样式。
   function setCssVariable(name, value) {
     document.documentElement.style.setProperty(name, value);
   }
 
+  // 清理已安排的章节导航重试，避免关闭阅读模式后继续渲染。
+  function clearChapterNavRetries() {
+    chapterNavRetryTimers.forEach((timer) => {
+      clearTimeout(timer);
+    });
+    chapterNavRetryTimers = [];
+  }
+
+  // 调用章节导航模块同步左右侧面板，并捕获异步错误。
+  function syncChapterNav() {
+    if (!window.BRPChapterNav || typeof window.BRPChapterNav.syncChapterNav !== "function") {
+      return;
+    }
+
+    window.BRPChapterNav.syncChapterNav(document, currentSettings.enabled).catch((error) => {
+      console.warn("[Browser Reading Plugin] Failed to sync chapter navigation:", error);
+    });
+  }
+
+  // 立即同步一次，并在短时间内重试，兼容延迟渲染导航 DOM 的站点。
+  function scheduleChapterNavSync() {
+    clearChapterNavRetries();
+    syncChapterNav();
+
+    if (!currentSettings.enabled) {
+      return;
+    }
+
+    [500, 1500, 3000].forEach((delay) => {
+      const timer = setTimeout(syncChapterNav, delay);
+      chapterNavRetryTimers.push(timer);
+    });
+  }
+
+  // 应用当前站点设置，更新 CSS 变量、根 class 和章节导航面板。
   function applySettings(settings) {
     currentSettings = normalizeSettings(settings);
 
@@ -137,8 +177,11 @@
     root.classList.toggle("brp-reading-enabled", currentSettings.enabled);
     root.classList.toggle("brp-reading-cleanup", currentSettings.enabled && currentSettings.cleanup);
     root.dataset.brpTheme = currentSettings.theme;
+
+    scheduleChapterNavSync();
   }
 
+  // 从 chrome.storage.local 读取指定 key。
   function getFromStorage(key) {
     return new Promise((resolve, reject) => {
       chrome.storage.local.get(key, (result) => {
@@ -153,6 +196,7 @@
     });
   }
 
+  // 将指定 key 写入 chrome.storage.local。
   function setInStorage(key, value) {
     return new Promise((resolve, reject) => {
       chrome.storage.local.set({ [key]: value }, () => {
@@ -167,11 +211,13 @@
     });
   }
 
+  // 加载当前站点设置并规范化。
   async function loadSettings() {
     const saved = await getFromStorage(storageKey());
     return normalizeSettings(saved);
   }
 
+  // 保存设置后立即应用到当前页面。
   async function saveAndApply(settings) {
     const normalized = normalizeSettings(settings);
     applySettings(normalized);
